@@ -9,7 +9,7 @@ public class PlayerInfo {
     public final int id;
     public final String ipAddress;
     public final short port;
-    private NodeRole role;
+    public NodeRole role;
     public final PlayerType type;
     private int score = 0;
 

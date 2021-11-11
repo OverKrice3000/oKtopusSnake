@@ -3,17 +3,22 @@ package application.graphics;
 import application.ApplicationControlThread;
 import application.GameState;
 import application.enums.Direction;
+import application.enums.NodeRole;
+import application.enums.PlayerType;
 import application.gamedata.Coord;
 import application.gamedata.GameConfig;
 import application.gamedata.PlayerInfo;
 import application.messages.AnnouncementMessage;
+import jdk.jfr.Unsigned;
 
+import javax.sql.rowset.Joinable;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.net.*;
 import java.util.EnumMap;
 import java.util.TreeMap;
 
@@ -58,12 +63,23 @@ public class Application {
 
     private class JoinableGame{
         public final JLabel master = new JLabel();
+        public final Component masterUpRigidBox = Box.createRigidArea(new Dimension(0, 5));
+        public final Component masterBottomRigidBox = Box.createRigidArea(new Dimension(0, 5));
         public final JLabel numOfPlayers = new JLabel();
+        public final Component numOfPlayersUpRigidBox = Box.createRigidArea(new Dimension(0, 5));
+        public final Component numOfPlayersBottomRigidBox = Box.createRigidArea(new Dimension(0, 5));
         public final JLabel fieldSize = new JLabel();
+        public final Component fieldSizeUpRigidBox = Box.createRigidArea(new Dimension(0, 5));
+        public final Component fieldSizeBottomRigidBox = Box.createRigidArea(new Dimension(0, 5));
         public final JLabel foodOnField = new JLabel();
+        public final Component foodOnFieldUpRigidBox = Box.createRigidArea(new Dimension(0, 5));
+        public final Component foodOnFieldBottomRigidBox = Box.createRigidArea(new Dimension(0, 5));
         public final JLabel turnDuration = new JLabel();
+        public final Component turnDurationUpRigidBox = Box.createRigidArea(new Dimension(0, 5));
+        public final Component turnDurationBottomRigidBox = Box.createRigidArea(new Dimension(0, 5));
         public final JButton join = new JButton("Join");
         private long lastUpdate;
+        private boolean canJoin;
     }
 
     private class SnakeCanvas extends Canvas{
@@ -118,6 +134,19 @@ public class Application {
         createConfigMenu();
         createJoinMenu();
         createGameMenu();
+
+        try {
+            Inet4Address inet = (Inet4Address) Inet4Address.getByName("237.252.254.122");
+            PlayerInfo[] players = new PlayerInfo[1];
+            players[0] = new PlayerInfo("master", 1, "", (short)25565, NodeRole.MASTER, PlayerType.HUMAN);
+            AnnouncementMessage message = new AnnouncementMessage(1, 1, 1, players, new GameConfig(), true);
+            for(int i = 0; i < 100; i++){
+                addJoinableGame(message, inet);
+            }
+        } catch (UnknownHostException e) {
+            e.printStackTrace();
+        }
+
         window.setVisible(true);
     }
 
@@ -532,12 +561,69 @@ public class Application {
         configTimeoutTextField.setText(String.valueOf(currentConfig.nodeTimeoutMs));
     }
 
-    private void addJoinableGame(AnnouncementMessage message){
+    private void addJoinableGame(AnnouncementMessage message, Inet4Address address){
+        JoinableGame game = new JoinableGame();
+        int masterIndex;
+        for(masterIndex = 0; masterIndex < message.players.length; masterIndex++){
+            if(message.players[masterIndex].role == NodeRole.MASTER)
+                break;
+        }
+        game.master.setText(message.players[masterIndex].name + "[" + address.getHostAddress() + "]");
+        game.numOfPlayers.setText(String.valueOf(message.players.length));
+        game.fieldSize.setText(message.config.width + "x" + message.config.height);
+        game.foodOnField.setText(message.config.foodStatic + " + " + message.config.foodPerPlayer + "x");
+        game.turnDuration.setText(message.config.iterationDelayMs + "ms");
+        game.lastUpdate = System.currentTimeMillis();
+        game.canJoin = message.canJoin;
 
+
+        System.out.println(game.master.getPreferredSize());
+        System.out.println(game.join.getPreferredSize());
+
+        game.master.setAlignmentX(Component.CENTER_ALIGNMENT);
+        game.numOfPlayers.setAlignmentX(Component.CENTER_ALIGNMENT);
+        game.fieldSize.setAlignmentX(Component.CENTER_ALIGNMENT);
+        game.foodOnField.setAlignmentX(Component.CENTER_ALIGNMENT);
+        game.turnDuration.setAlignmentX(Component.CENTER_ALIGNMENT);
+        game.join.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        joinMasterPanel.add(game.masterUpRigidBox);
+        joinMasterPanel.add(game.master);
+        joinMasterPanel.add(game.masterBottomRigidBox);
+        joinNumberOfPlayersPanel.add(game.numOfPlayersUpRigidBox);
+        joinNumberOfPlayersPanel.add(game.numOfPlayers);
+        joinNumberOfPlayersPanel.add(game.numOfPlayersBottomRigidBox);
+        joinFieldSizePanel.add(game.fieldSizeUpRigidBox);
+        joinFieldSizePanel.add(game.fieldSize);
+        joinFieldSizePanel.add(game.fieldSizeBottomRigidBox);
+        joinFoodPanel.add(game.foodOnFieldUpRigidBox);
+        joinFoodPanel.add(game.foodOnField);
+        joinFoodPanel.add(game.foodOnFieldBottomRigidBox);
+        joinTurnDurationPanel.add(game.turnDurationUpRigidBox);
+        joinTurnDurationPanel.add(game.turnDuration);
+        joinTurnDurationPanel.add(game.turnDurationBottomRigidBox);
+        joinButtonPanel.add(game.join);
+        joinableGames.put(ipaddrToInt(address), game);
     }
 
-    private void clearOutdatedGames(){
+    private int ipaddrToInt(Inet4Address addr){
+        String[] addrBytes = addr.getHostAddress().split("\\.");
+        int ipaddrInt = 0;
+        for(int i = 0; i < 4; i++){
+            ipaddrInt += (Integer.parseInt(addrBytes[3 - i]) & 0b11111111)  << (i * 8);
+        }
+        return ipaddrInt;
+    }
 
+    private void removeJoinableGame(int gameIndex){
+        JoinableGame game = joinableGames.get(gameIndex);
+        joinMasterPanel.remove(game.master);
+        joinNumberOfPlayersPanel.remove(game.numOfPlayers);
+        joinFieldSizePanel.remove(game.fieldSize);
+        joinFoodPanel.remove(game.foodOnField);
+        joinTurnDurationPanel.remove(game.turnDuration);
+        joinButtonPanel.remove(game.join);
+        joinableGames.remove(gameIndex);
     }
 
 }
