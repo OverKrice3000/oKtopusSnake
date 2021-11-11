@@ -1,10 +1,10 @@
 package application.messages;
 
 public abstract class Message{
-    final MessageType messageType;
-    final int seq;
-    final int senderId;
-    final int receiverId;
+    public final MessageType messageType;
+    public final int seq;
+    public final int senderId;
+    public final int receiverId;
 
     public Message(MessageType messageType, int seq, int senderId, int receiverId) {
         this.messageType = messageType;

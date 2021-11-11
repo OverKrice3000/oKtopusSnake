@@ -3,7 +3,6 @@ package application.graphics;
 import application.ApplicationControlThread;
 import application.GameState;
 import application.enums.Direction;
-import application.enums.NodeRole;
 import application.gamedata.Coord;
 import application.gamedata.GameConfig;
 import application.gamedata.PlayerInfo;
@@ -45,6 +44,9 @@ public class Application {
                         configTurnDelayTextField, configFoodChanceTextField,
                         configPingFrequencyTextField, configTimeoutTextField;
 
+    JPanel joinMasterPanel, joinNumberOfPlayersPanel,
+    joinFieldSizePanel, joinFoodPanel,
+    joinTurnDurationPanel ,joinButtonPanel;
 
     private final int menuWidth = 800;
     private final int menuHeight = 600;
@@ -55,7 +57,13 @@ public class Application {
     private final int gameOutdatedTimeoutMs = 3000;
 
     private class JoinableGame{
-
+        public final JLabel master = new JLabel();
+        public final JLabel numOfPlayers = new JLabel();
+        public final JLabel fieldSize = new JLabel();
+        public final JLabel foodOnField = new JLabel();
+        public final JLabel turnDuration = new JLabel();
+        public final JButton join = new JButton("Join");
+        private long lastUpdate;
     }
 
     private class SnakeCanvas extends Canvas{
@@ -306,22 +314,18 @@ public class Application {
         panel.setSize(window.getSize());
         panel.setVisible(false);
 
-        JLabel label1 = new JLabel("TEST LABEL1!");
-        JLabel label2 = new JLabel("TEST LABEL2!");
-
-        JPanel joinMasterPanel = new JPanel();
-        JPanel joinNumberOfPlayersPanel = new JPanel();
-        JPanel joinFieldSizePanel = new JPanel();
-        JPanel joinFoodPanel = new JPanel();
-        JPanel joinTurnDurationPanel = new JPanel();
-        JPanel joinButtonPanel = new JPanel();
-
-        joinMasterPanel.setPreferredSize(new Dimension(100, 780));
-        joinNumberOfPlayersPanel.setPreferredSize(new Dimension(100, 780));
-        joinFieldSizePanel.setPreferredSize(new Dimension(100, 780));
-        joinFoodPanel.setPreferredSize(new Dimension(100, 780));
-        joinTurnDurationPanel.setPreferredSize(new Dimension(100, 780));
-        joinButtonPanel.setPreferredSize(new Dimension(100, 780));
+        joinMasterPanel = new JPanel();
+        joinNumberOfPlayersPanel = new JPanel();
+        joinFieldSizePanel = new JPanel();
+        joinFoodPanel = new JPanel();
+        joinTurnDurationPanel = new JPanel();
+        joinButtonPanel = new JPanel();
+        joinMasterPanel.setLayout(new BoxLayout(joinMasterPanel, BoxLayout.Y_AXIS));
+        joinNumberOfPlayersPanel.setLayout(new BoxLayout(joinNumberOfPlayersPanel, BoxLayout.Y_AXIS));
+        joinFieldSizePanel.setLayout(new BoxLayout(joinFieldSizePanel, BoxLayout.Y_AXIS));
+        joinFoodPanel.setLayout(new BoxLayout(joinFoodPanel, BoxLayout.Y_AXIS));
+        joinTurnDurationPanel.setLayout(new BoxLayout(joinTurnDurationPanel, BoxLayout.Y_AXIS));
+        joinButtonPanel.setLayout(new BoxLayout(joinButtonPanel, BoxLayout.Y_AXIS));
 
         JScrollPane joinMasterScrollPanel = new JScrollPane(joinMasterPanel);
         JScrollPane joinNumberOfPlayersScrollPanel = new JScrollPane(joinNumberOfPlayersPanel);
@@ -330,10 +334,40 @@ public class Application {
         JScrollPane joinTurnDurationScrollPanel = new JScrollPane(joinTurnDurationPanel);
         JScrollPane joinButtonScrollPanel = new JScrollPane(joinButtonPanel);
 
+        joinMasterScrollPanel.setPreferredSize(new Dimension(200, 520));
+        joinNumberOfPlayersScrollPanel.setPreferredSize(new Dimension(40,520));
+        joinFieldSizeScrollPanel.setPreferredSize(new Dimension(100, 520));
+        joinFoodScrollPanel.setPreferredSize(new Dimension(100, 520));
+        joinTurnDurationScrollPanel.setPreferredSize(new Dimension(100, 520));
+        joinButtonScrollPanel.setPreferredSize(new Dimension(100, 520));
 
-        joinMasterPanel.add(label1);
-        joinNumberOfPlayersPanel.add(label2);
-        joinFieldSizePanel.add(label1);
+        joinMasterScrollPanel.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
+        joinNumberOfPlayersScrollPanel.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
+        joinFieldSizeScrollPanel.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
+        joinFoodScrollPanel.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
+        joinTurnDurationScrollPanel.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_NEVER);
+        joinButtonScrollPanel.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+        joinMasterScrollPanel.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        joinNumberOfPlayersScrollPanel.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        joinFieldSizeScrollPanel.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        joinFoodScrollPanel.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        joinTurnDurationScrollPanel.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        joinButtonScrollPanel.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
+        BoundedRangeModel barOfAll = joinButtonScrollPanel.getVerticalScrollBar().getModel();
+        joinMasterScrollPanel.getVerticalScrollBar().setModel(barOfAll);
+        joinNumberOfPlayersScrollPanel.getVerticalScrollBar().setModel(barOfAll);
+        joinFieldSizeScrollPanel.getVerticalScrollBar().setModel(barOfAll);
+        joinFoodScrollPanel.getVerticalScrollBar().setModel(barOfAll);
+        joinTurnDurationScrollPanel.getVerticalScrollBar().setModel(barOfAll);
+
+        //joinButtonScrollPanel.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS);
+
+        panel.add(joinMasterScrollPanel);
+        panel.add(joinNumberOfPlayersScrollPanel);
+        panel.add(joinFieldSizeScrollPanel);
+        panel.add(joinFoodScrollPanel);
+        panel.add(joinTurnDurationScrollPanel);
+        panel.add(joinButtonScrollPanel);
 
         JButton back = new JButton("Return to main menu");
         back.addMouseListener(new MouseAdapter() {
@@ -344,28 +378,6 @@ public class Application {
         });
         back.setAlignmentX(Component.CENTER_ALIGNMENT);
         panel.add(back);
-
-        joinFoodPanel.add(label2);
-        joinTurnDurationPanel.add(label1);
-        joinButtonPanel.add(label2);
-
-        panel.add(joinMasterScrollPanel);
-        panel.add(joinNumberOfPlayersScrollPanel);
-        panel.add(joinFieldSizeScrollPanel);
-        panel.add(joinFoodScrollPanel);
-        panel.add(joinTurnDurationScrollPanel);
-        panel.add(joinButtonScrollPanel);
-
-
-        /*JButton back = new JButton("Return to main menu");
-        back.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                showMenu(MenuIndex.MAIN);
-            }
-        });
-        back.setAlignmentX(Component.CENTER_ALIGNMENT);
-        panel.add(back);*/
 
         window.add(panel);
         menuPanels.put(MenuIndex.JOIN, panel);
@@ -485,21 +497,21 @@ public class Application {
             int nodeTimeoutMs = Integer.parseInt(configTimeoutTextField.getText());
             boolean isSuitable;
             isSuitable = GameConfig.minimals.width <= width;
-            isSuitable = GameConfig.minimals.height <= height;
-            isSuitable = GameConfig.minimals.foodStatic <= foodStatic;
-            isSuitable = GameConfig.minimals.foodPerPlayer <= foodPerPlayer;
-            isSuitable = GameConfig.minimals.iterationDelayMs <= iterationDelayMs;
-            isSuitable = GameConfig.minimals.deadFoodProb <= deadFoodProb;
-            isSuitable = GameConfig.minimals.pingDelayMs <= pingDelayMs;
-            isSuitable = GameConfig.minimals.nodeTimeoutMs <= nodeTimeoutMs;
-            isSuitable = width <= GameConfig.maximums.width;
-            isSuitable = height <= GameConfig.maximums.height;
-            isSuitable = foodStatic <= GameConfig.maximums.foodStatic;
-            isSuitable = foodPerPlayer <= GameConfig.maximums.foodPerPlayer;
-            isSuitable = iterationDelayMs <= GameConfig.maximums.iterationDelayMs;
-            isSuitable = deadFoodProb <= GameConfig.maximums.deadFoodProb;
-            isSuitable = pingDelayMs <= GameConfig.maximums.pingDelayMs;
-            isSuitable = nodeTimeoutMs <= GameConfig.maximums.nodeTimeoutMs;
+            isSuitable &= GameConfig.minimals.height <= height;
+            isSuitable &= GameConfig.minimals.foodStatic <= foodStatic;
+            isSuitable &= GameConfig.minimals.foodPerPlayer <= foodPerPlayer;
+            isSuitable &= GameConfig.minimals.iterationDelayMs <= iterationDelayMs;
+            isSuitable &= GameConfig.minimals.deadFoodProb <= deadFoodProb;
+            isSuitable &= GameConfig.minimals.pingDelayMs <= pingDelayMs;
+            isSuitable &= GameConfig.minimals.nodeTimeoutMs <= nodeTimeoutMs;
+            isSuitable &= width <= GameConfig.maximums.width;
+            isSuitable &= height <= GameConfig.maximums.height;
+            isSuitable &= foodStatic <= GameConfig.maximums.foodStatic;
+            isSuitable &= foodPerPlayer <= GameConfig.maximums.foodPerPlayer;
+            isSuitable &= iterationDelayMs <= GameConfig.maximums.iterationDelayMs;
+            isSuitable &= deadFoodProb <= GameConfig.maximums.deadFoodProb;
+            isSuitable &= pingDelayMs <= GameConfig.maximums.pingDelayMs;
+            isSuitable &= nodeTimeoutMs <= GameConfig.maximums.nodeTimeoutMs;
             if(!isSuitable)
                 JOptionPane.showMessageDialog(window, "Incorrect config!");
             return isSuitable;
