@@ -1,6 +1,8 @@
 package application.messages;
 
-public abstract class Message{
+import java.io.Serializable;
+
+public abstract class Message implements Serializable {
     public final MessageType messageType;
     public final int seq;
     public final int senderId;

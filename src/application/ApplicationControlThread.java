@@ -7,6 +7,9 @@ import application.gamedata.GameConfig;
 import application.gamedata.PlayerInfo;
 import application.graphics.Application;
 
+import java.io.IOException;
+import java.net.MulticastSocket;
+
 /**
  * This class represents thread, which controls game process
  */
@@ -31,7 +34,7 @@ public class ApplicationControlThread extends Thread {
      * @param gameConfig config, chosen by a player.
      * @param app graphic application.
      */
-    public ApplicationControlThread(GameConfig gameConfig, Application app){
+    public ApplicationControlThread(GameConfig gameConfig, Application app) {
         this.app = app;
         myId = 0;
         role = NodeRole.MASTER;

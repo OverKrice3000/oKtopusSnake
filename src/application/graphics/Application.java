@@ -2,6 +2,7 @@ package application.graphics;
 
 import application.ApplicationControlThread;
 import application.GameState;
+import application.JoinableGameReceiverThread;
 import application.enums.Direction;
 import application.enums.NodeRole;
 import application.enums.PlayerType;
@@ -18,6 +19,7 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.IOException;
 import java.net.*;
 import java.util.EnumMap;
 import java.util.TreeMap;
@@ -31,6 +33,7 @@ public class Application {
     private SnakeCanvas snakeCanvas;
 
     private ApplicationControlThread gameController = null;
+    private JoinableGameReceiverThread joinReceiverThread;
 
 
     private TreeMap<Integer, JLabel> playerLabels = new TreeMap<>();
@@ -58,8 +61,6 @@ public class Application {
     private final int gameFieldWidth = 1000;
     private final int gameScoreWidth = 400;
     private final int gameHeight = 1000;
-
-    private final int gameOutdatedTimeoutMs = 3000;
 
     private class JoinableGame{
         public final JLabel master = new JLabel();
@@ -124,7 +125,7 @@ public class Application {
     /**
      * Initializes and shows oKtopusSnake graphic application
      */
-    public Application(){
+    public Application() throws IOException {
         window = new JFrame("oKtopusSnake");
         window.setSize(menuWidth, menuHeight);
         window.setResizable(false);
@@ -135,17 +136,8 @@ public class Application {
         createJoinMenu();
         createGameMenu();
 
-        try {
-            Inet4Address inet = (Inet4Address) Inet4Address.getByName("237.252.254.122");
-            PlayerInfo[] players = new PlayerInfo[1];
-            players[0] = new PlayerInfo("master", 1, "", (short)25565, NodeRole.MASTER, PlayerType.HUMAN);
-            AnnouncementMessage message = new AnnouncementMessage(1, 1, 1, players, new GameConfig(), true);
-            for(int i = 0; i < 100; i++){
-                addJoinableGame(message, inet);
-            }
-        } catch (UnknownHostException e) {
-            e.printStackTrace();
-        }
+        joinReceiverThread = new JoinableGameReceiverThread(this);
+        joinReceiverThread.start();
 
         window.setVisible(true);
     }
@@ -178,6 +170,7 @@ public class Application {
                 firstPixY += shift;
                 lastPixX += shift;
                 lastPixY += shift;
+                joinReceiverThread.interrupt();
                 gameController = new ApplicationControlThread(gameConfig, appLink);
             }
         });
@@ -455,6 +448,7 @@ public class Application {
                 gameController = null;
                 scorePanel.removeAll();
                 playerLabels.clear();
+                joinReceiverThread.start();
                 showMenu(MenuIndex.MAIN);
             }
         });
@@ -561,6 +555,29 @@ public class Application {
         configTimeoutTextField.setText(String.valueOf(currentConfig.nodeTimeoutMs));
     }
 
+    public void processAnnouncementMessage(AnnouncementMessage message, Inet4Address address){
+        int ipaddr = ipaddrToInt(address);
+        if(joinableGames.containsKey(ipaddr))
+            updateJoinableGame(message, address);
+        else
+            addJoinableGame(message, address);
+    }
+
+    private void updateJoinableGame(AnnouncementMessage message, Inet4Address address){
+        JoinableGame game = joinableGames.get(ipaddrToInt(address));
+        int masterIndex;
+        for(masterIndex = 0; masterIndex < message.players.length; masterIndex++){
+            if(message.players[masterIndex].role == NodeRole.MASTER)
+                break;
+        }
+        game.master.setText(message.players[masterIndex].name + "[" + address.getHostAddress() + "]");
+        game.numOfPlayers.setText(String.valueOf(message.players.length));
+        game.fieldSize.setText(message.config.width + "x" + message.config.height);
+        game.foodOnField.setText(message.config.foodStatic + " + " + message.config.foodPerPlayer + "x");
+        game.turnDuration.setText(message.config.iterationDelayMs + "ms");
+        game.lastUpdate = System.currentTimeMillis();
+    }
+
     private void addJoinableGame(AnnouncementMessage message, Inet4Address address){
         JoinableGame game = new JoinableGame();
         int masterIndex;
@@ -575,10 +592,6 @@ public class Application {
         game.turnDuration.setText(message.config.iterationDelayMs + "ms");
         game.lastUpdate = System.currentTimeMillis();
         game.canJoin = message.canJoin;
-
-
-        System.out.println(game.master.getPreferredSize());
-        System.out.println(game.join.getPreferredSize());
 
         game.master.setAlignmentX(Component.CENTER_ALIGNMENT);
         game.numOfPlayers.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -615,7 +628,15 @@ public class Application {
         return ipaddrInt;
     }
 
-    private void removeJoinableGame(int gameIndex){
+    public void removeOutdatedGames(){
+        for(Integer gameIndex: joinableGames.keySet()){
+            if(System.currentTimeMillis() - joinableGames.get(gameIndex).lastUpdate > 3000){
+                removeJoinableGame(gameIndex);
+            }
+        }
+    }
+
+    public void removeJoinableGame(int gameIndex){
         JoinableGame game = joinableGames.get(gameIndex);
         joinMasterPanel.remove(game.master);
         joinNumberOfPlayersPanel.remove(game.numOfPlayers);
@@ -624,6 +645,10 @@ public class Application {
         joinTurnDurationPanel.remove(game.turnDuration);
         joinButtonPanel.remove(game.join);
         joinableGames.remove(gameIndex);
+    }
+
+    public void clearJoinableGames(){
+        joinableGames.clear();
     }
 
 }
