@@ -3,6 +3,7 @@ package application.graphics;
 import application.ApplicationControlThread;
 import application.GameState;
 import application.JoinableGameReceiverThread;
+import application.JoinableTestThread;
 import application.enums.Direction;
 import application.enums.NodeRole;
 import application.enums.PlayerType;
@@ -52,7 +53,7 @@ public class Application {
                         configTurnDelayTextField, configFoodChanceTextField,
                         configPingFrequencyTextField, configTimeoutTextField;
 
-    JPanel joinMasterPanel, joinNumberOfPlayersPanel,
+    private JPanel joinMasterPanel, joinNumberOfPlayersPanel,
     joinFieldSizePanel, joinFoodPanel,
     joinTurnDurationPanel ,joinButtonPanel;
 
@@ -576,6 +577,7 @@ public class Application {
         game.foodOnField.setText(message.config.foodStatic + " + " + message.config.foodPerPlayer + "x");
         game.turnDuration.setText(message.config.iterationDelayMs + "ms");
         game.lastUpdate = System.currentTimeMillis();
+        menuPanels.get(MenuIndex.JOIN).updateUI();
     }
 
     private void addJoinableGame(AnnouncementMessage message, Inet4Address address){
@@ -617,6 +619,7 @@ public class Application {
         joinTurnDurationPanel.add(game.turnDurationBottomRigidBox);
         joinButtonPanel.add(game.join);
         joinableGames.put(ipaddrToInt(address), game);
+        menuPanels.get(MenuIndex.JOIN).updateUI();
     }
 
     private int ipaddrToInt(Inet4Address addr){
@@ -634,21 +637,33 @@ public class Application {
                 removeJoinableGame(gameIndex);
             }
         }
+        menuPanels.get(MenuIndex.JOIN).updateUI();
     }
 
     public void removeJoinableGame(int gameIndex){
         JoinableGame game = joinableGames.get(gameIndex);
+        joinMasterPanel.remove(game.masterUpRigidBox);
         joinMasterPanel.remove(game.master);
+        joinMasterPanel.remove(game.masterBottomRigidBox);
+        joinNumberOfPlayersPanel.remove(game.numOfPlayersUpRigidBox);
         joinNumberOfPlayersPanel.remove(game.numOfPlayers);
+        joinNumberOfPlayersPanel.remove(game.numOfPlayersBottomRigidBox);
+        joinFieldSizePanel.remove(game.fieldSizeUpRigidBox);
         joinFieldSizePanel.remove(game.fieldSize);
+        joinFieldSizePanel.remove(game.fieldSizeBottomRigidBox);
+        joinFoodPanel.remove(game.foodOnFieldUpRigidBox);
         joinFoodPanel.remove(game.foodOnField);
+        joinFoodPanel.remove(game.foodOnFieldBottomRigidBox);
+        joinTurnDurationPanel.remove(game.turnDurationUpRigidBox);
         joinTurnDurationPanel.remove(game.turnDuration);
+        joinTurnDurationPanel.remove(game.turnDurationBottomRigidBox);
         joinButtonPanel.remove(game.join);
         joinableGames.remove(gameIndex);
     }
 
     public void clearJoinableGames(){
         joinableGames.clear();
+        menuPanels.get(MenuIndex.JOIN).updateUI();
     }
 
 }

@@ -1,12 +1,14 @@
 package application.gamedata;
 
+import java.io.Serializable;
+
 /**
  * This class represents config of the game, which can't be changed
  * once game has started.
  * <p>
  * Objects of this class are immutable.
  */
-public class GameConfig {
+public class GameConfig implements Serializable {
     public final int width;           // Ширина поля в клетках (от 10 до 100)
     public final int height;          // Высота поля в клетках (от 10 до 100)
     public final int foodStatic;      // Количество клеток с едой, независимо от числа игроков (от 0 до 100)

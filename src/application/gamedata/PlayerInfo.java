@@ -3,8 +3,10 @@ package application.gamedata;
 import application.enums.NodeRole;
 import application.enums.PlayerType;
 
+import java.io.Serializable;
 
-public class PlayerInfo {
+
+public class PlayerInfo implements Serializable {
     public final String name;
     public final int id;
     public final String ipAddress;
