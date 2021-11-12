@@ -12,24 +12,21 @@ import java.util.Enumeration;
 
 public class JoinableGameReceiverThread extends Thread {
 
-    private final MulticastSocket socket = new MulticastSocket(9192);
+    private final MulticastSocket socket;
     private final Application app;
     private long outdatedGamesLastChecked;
 
-    public JoinableGameReceiverThread(Application app) throws IOException {
+    public JoinableGameReceiverThread(Application app, MulticastSocket socket) {
         this.app = app;
-        System.out.println();
-        Enumeration enumeration =  NetworkInterface.getNetworkInterfaces();
-        while(enumeration.hasMoreElements()){
-            System.out.println(enumeration.nextElement());
-        }
-        socket.joinGroup(InetAddress.getByName("239.192.0.4"));
-
-        socket.setSoTimeout(3000);
-        socket.setTimeToLive(255);
+        this.socket = socket;
     }
     @Override
     public void run() {
+        /*Enumeration enumeration =  NetworkInterface.getNetworkInterfaces();
+        while(enumeration.hasMoreElements()){
+            System.out.println(enumeration.nextElement());
+        }
+        socket.joinGroup(InetAddress.getByName("239.192.0.4"));*/
         try {
             byte[] buf = new byte[4096];
             DatagramPacket packet = new DatagramPacket(buf, 4096);

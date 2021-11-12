@@ -28,11 +28,11 @@ public class GameConfig implements Serializable {
     );
 
     public GameConfig(){
-        width = 100;
+        width = 10;
         height = 100;
         foodStatic = 1;
         foodPerPlayer = 1;
-        iterationDelayMs = 1;
+        iterationDelayMs = 100;
         deadFoodProb = 0.1;
         pingDelayMs = 100;
         nodeTimeoutMs = 800;

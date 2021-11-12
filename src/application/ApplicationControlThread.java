@@ -25,6 +25,7 @@ public class ApplicationControlThread extends Thread {
     private final Application app;
 
     private NodeRole role;
+    private final MulticastSocket socket;
 
     /**
      * This constructor is invoked when player decided to start a new game.
@@ -34,13 +35,13 @@ public class ApplicationControlThread extends Thread {
      * @param gameConfig config, chosen by a player.
      * @param app graphic application.
      */
-    public ApplicationControlThread(GameConfig gameConfig, Application app) {
+    public ApplicationControlThread(GameConfig gameConfig, Application app, MulticastSocket socket) {
         this.app = app;
+        this.socket = socket;
         myId = 0;
         role = NodeRole.MASTER;
         PlayerInfo master = new PlayerInfo("Master", myId, "", (short)25565, NodeRole.MASTER, PlayerType.HUMAN); //TODO port & name from application
         currentState = new GameState(gameConfig, master);
-        start();
     }
 
     public void run(){

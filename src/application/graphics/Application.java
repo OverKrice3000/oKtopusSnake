@@ -63,6 +63,9 @@ public class Application {
     private final int gameScoreWidth = 400;
     private final int gameHeight = 1000;
 
+    private final MulticastSocket recvGameMulticastSocket;
+    private final MulticastSocket controlMulticastSocket;
+
     private class JoinableGame{
         public final JLabel master = new JLabel();
         public final Component masterUpRigidBox = Box.createRigidArea(new Dimension(0, 5));
@@ -90,7 +93,7 @@ public class Application {
         public void paint(Graphics g){
             super.paint(g);
             g.setColor(Color.BLACK);
-            g.drawRect(firstPixX, firstPixY, firstPixX + currentState.config.width * stepPix, firstPixY + currentState.config.height * stepPix);
+            g.drawRect(firstPixX, firstPixY, currentState.config.width * stepPix, currentState.config.height * stepPix);
             g.setColor(Color.BLUE);
             for(GameState.Snake snake: currentState.snakes.values()){
                 int curX = snake.body.peekFirst().x;
@@ -137,8 +140,14 @@ public class Application {
         createJoinMenu();
         createGameMenu();
 
-        joinReceiverThread = new JoinableGameReceiverThread(this);
+        recvGameMulticastSocket = new MulticastSocket(9192);
+        recvGameMulticastSocket.setSoTimeout(3000);
+        recvGameMulticastSocket.setTimeToLive(255);
+        joinReceiverThread = new JoinableGameReceiverThread(this, recvGameMulticastSocket);
         joinReceiverThread.start();
+
+        controlMulticastSocket = new MulticastSocket();
+        controlMulticastSocket.setTimeToLive(255);
 
         window.setVisible(true);
     }
@@ -160,19 +169,19 @@ public class Application {
             @Override
             public void mouseClicked(MouseEvent e) {
                 showMenu(MenuIndex.GAME);
-                GameConfig gameConfig = new GameConfig();
-                stepPix = Math.min(940 / gameConfig.width, 920 / gameConfig.height);
-                firstPixX = (940 - stepPix * gameConfig.width) / 2;
-                firstPixY = (920 - stepPix * gameConfig.height) / 2;
-                lastPixX = firstPixX + stepPix * gameConfig.width;
-                lastPixY = firstPixY + stepPix * gameConfig.height;
+                stepPix = Math.min(940 / currentConfig.width, 920 / currentConfig.height);
+                firstPixX = (940 - stepPix * currentConfig.width) / 2;
+                firstPixY = (920 - stepPix * currentConfig.height) / 2;
+                lastPixX = firstPixX + stepPix * currentConfig.width;
+                lastPixY = firstPixY + stepPix * currentConfig.height;
                 int shift = Math.min((970 - lastPixX) / 2, (930 - lastPixY) / 2);
                 firstPixX += shift;
                 firstPixY += shift;
                 lastPixX += shift;
                 lastPixY += shift;
                 joinReceiverThread.interrupt();
-                gameController = new ApplicationControlThread(gameConfig, appLink);
+                gameController = new ApplicationControlThread(currentConfig, appLink, controlMulticastSocket);
+                gameController.start();
             }
         });
         newGame.setAlignmentX(Component.CENTER_ALIGNMENT);
@@ -440,6 +449,8 @@ public class Application {
         scorePanel = new JPanel();
         scorePanel.setLayout(new BoxLayout(scorePanel, BoxLayout.Y_AXIS));
 
+        Application appLink = this;
+
         JButton backToMenu = new JButton("Back to main menu");
         backToMenu.setAlignmentX(Component.CENTER_ALIGNMENT);
         backToMenu.addMouseListener(new MouseAdapter() {
@@ -449,6 +460,7 @@ public class Application {
                 gameController = null;
                 scorePanel.removeAll();
                 playerLabels.clear();
+                joinReceiverThread = new JoinableGameReceiverThread(appLink, recvGameMulticastSocket);
                 joinReceiverThread.start();
                 showMenu(MenuIndex.MAIN);
             }
