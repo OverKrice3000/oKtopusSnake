@@ -128,6 +128,10 @@ public class GameState implements Serializable {
         addNeededFood();
     }
 
+    public int getStateId() {
+        return stateId;
+    }
+
     /**
      * This method changes {@code this} object as if one turn has passed
      */
@@ -225,23 +229,38 @@ public class GameState implements Serializable {
         snakes.get(ownerId).changeDirection(direction);
     }
 
-    public boolean addNewSnake(int playerId){
+    public Coord findSuitableCoord(){
         ArrayList<Coord> emptyList = getEmptyTilesList();
+        ArrayList<Coord> triedEmptyList = new ArrayList<>(emptyList.size() / 2);
         Random rand = new Random();
         while(!emptyList.isEmpty()){
             Coord nextCoord = emptyList.get(rand.nextInt(emptyList.size()));
             boolean isSuitable = true;
             for(int i = -2; i <= 2; i++){
                 for(int j = -2; j <= 2; j++){
-                    if(!emptyList.contains(new Coord(nextCoord.x + i, nextCoord.y + j)))
+                    Coord currentCoord = new Coord(nextCoord.x + i, nextCoord.y + j);
+                    if(!emptyList.contains(currentCoord) && !triedEmptyList.contains(currentCoord))
                         isSuitable = false;
                 }
             }
             if(isSuitable) {
-                snakes.put(playerId, new Snake(playerId, nextCoord, Direction.values()[rand.nextInt(Direction.values().length)]));
-                snakesAlive++;
-                return true;
+                return nextCoord;
             }
+            else{
+                emptyList.remove(nextCoord);
+                triedEmptyList.add(nextCoord);
+            }
+        }
+        return null;
+    }
+
+    public boolean addNewSnake(int playerId){
+        Coord suitable = findSuitableCoord();
+        if(suitable != null){
+            Random rand = new Random();
+            snakes.put(playerId, new Snake(playerId, suitable, Direction.values()[rand.nextInt(Direction.values().length)]));
+            snakesAlive++;
+            return true;
         }
         return false;
     }

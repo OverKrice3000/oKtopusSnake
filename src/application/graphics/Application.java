@@ -158,7 +158,7 @@ public class Application {
         joinReceiverThread.setName("Join Receiver Thread");
         joinReceiverThread.start();
 
-        controlMulticastSocket = new MulticastSocket();
+        controlMulticastSocket = new MulticastSocket(25565);
         controlMulticastSocket.setTimeToLive(255);
 
         window.setVisible(true);
@@ -635,6 +635,10 @@ public class Application {
         game.join.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
+                if(!game.canJoin){
+                    JOptionPane.showMessageDialog(window, "Game is full!");
+                    return;
+                }
                 ApplicationControlThread temp = null;
                 try {
                     temp = new ApplicationControlThread(appLink, controlMulticastSocket, address, port);

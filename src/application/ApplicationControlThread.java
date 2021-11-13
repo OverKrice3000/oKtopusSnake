@@ -102,14 +102,14 @@ public class ApplicationControlThread extends Thread {
     private int processTimeoutTasks() throws IOException, InterruptedException {
         int minimalTimeout = 1000;
         int currentTimeout;
-
         if(role == NodeRole.MASTER) {
             currentTimeout = (int) (1000 - (System.currentTimeMillis() - lastAnnounceUpdate));
             if (currentTimeout <= 0) {
+                boolean canJoin = (currentState.findSuitableCoord() != null);
                 AnnouncementMessage message = new AnnouncementMessage(
                         mySeq++, 0, 0,
                         currentState.players.values().toArray(new PlayerInfo[0]),
-                        currentState.config, true); //TODO change canjoin
+                        currentState.config, canJoin);
                 ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
                 ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
                 objOut.writeObject(message);
@@ -159,32 +159,55 @@ public class ApplicationControlThread extends Thread {
         }
         else if(role == NodeRole.MASTER && recvObj.getClass() == JoinMessage.class){
             JoinMessage recvMessage = (JoinMessage)recvObj;
-            // TODO check if can join
-            //TODO change id
-            AckMessage message = new AckMessage(recvMessage.seq, myId, 1);
-            ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
-            ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
-            objOut.writeObject(message);
-            DatagramPacket packet = new DatagramPacket(
-                    byteOut.toByteArray(), byteOut.toByteArray().length,
-                    recvPacket.getAddress(),
-                    recvPacket.getPort());
-            socket.send(packet);
+            boolean canJoin = currentState.findSuitableCoord() != null;
+            if(canJoin) {
+                int unusedId = findUnusedId();
+                AckMessage message = new AckMessage(recvMessage.seq, myId, unusedId);
+                ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+                ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
+                objOut.writeObject(message);
+                DatagramPacket packet = new DatagramPacket(
+                        byteOut.toByteArray(), byteOut.toByteArray().length,
+                        recvPacket.getAddress(),
+                        recvPacket.getPort());
+                socket.send(packet);
 
-            PlayerInfo newPlayer = new PlayerInfo(
-                    recvMessage.name, 1,
-                    recvPacket.getAddress().getHostAddress(), recvPacket.getPort(),
-                    NodeRole.NORMAL, recvMessage.playerType
-            );
-            currentState.players.put(newPlayer.id, newPlayer);
-            currentState.addNewSnake(newPlayer.id);
+                PlayerInfo newPlayer = new PlayerInfo(
+                        recvMessage.name, unusedId,
+                        recvPacket.getAddress().getHostAddress(), recvPacket.getPort(),
+                        NodeRole.NORMAL, recvMessage.playerType
+                );
+                currentState.players.put(newPlayer.id, newPlayer);
+                currentState.addNewSnake(newPlayer.id);
+            }
+            else{
+                ErrorMessage message = new ErrorMessage(recvMessage.seq, myId, 0, "Game if full!");
+                ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+                ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
+                objOut.writeObject(message);
+                DatagramPacket packet = new DatagramPacket(
+                        byteOut.toByteArray(), byteOut.toByteArray().length,
+                        recvPacket.getAddress(),
+                        recvPacket.getPort());
+                socket.send(packet);
+            }
         }
         else if(role == NodeRole.NORMAL && recvObj.getClass() == StateMessage.class){
             StateMessage recvMessage = (StateMessage) recvObj;
-            //TODO check state id
-            currentState = recvMessage.state;
-            app.paintState(currentState);
+            if(currentState.getStateId() < recvMessage.senderId) {
+                currentState = recvMessage.state;
+                app.paintState(currentState);
+            }
         }
+    }
+
+    private int findUnusedId(){
+        int iterations = currentState.players.size() + 1;
+        for(int i = 0; i < iterations; i++){
+            if(!currentState.players.containsKey(i))
+                return i;
+        }
+        throw new IllegalStateException("SYSTEM ERROR: Could not find unused id");
     }
 
     public void run(){
@@ -194,8 +217,9 @@ public class ApplicationControlThread extends Thread {
         long lastUpdate = System.currentTimeMillis();
         while(true){
             try {
-                if(interrupted())
+                if(interrupted()) {
                     break;
+                }
                 currentSockTimeout -= System.currentTimeMillis() - lastUpdate;
                 if(currentSockTimeout <= 0)
                     currentSockTimeout = processTimeoutTasks();
