@@ -26,7 +26,7 @@ public class JoinableGameReceiverThread extends Thread {
         while(enumeration.hasMoreElements()){
             System.out.println(enumeration.nextElement());
         }
-        socket.joinGroup(InetAddress.getByName("239.192.0.4"));*/
+        */
         try {
             byte[] buf = new byte[4096];
             DatagramPacket packet = new DatagramPacket(buf, 4096);
@@ -45,10 +45,11 @@ public class JoinableGameReceiverThread extends Thread {
                     ByteArrayInputStream byteIn = new ByteArrayInputStream(buf);
                     ObjectInputStream objIn = new ObjectInputStream(byteIn);
                     Object received =  objIn.readObject();
+                    System.out.println(received.getClass());
                     if(received.getClass() != AnnouncementMessage.class || packet.getAddress().getClass() != Inet4Address.class)
                         continue;
                     AnnouncementMessage message = (AnnouncementMessage) received;
-                    app.processAnnouncementMessage(message, (Inet4Address)packet.getAddress());
+                    app.processAnnouncementMessage(message, (Inet4Address)packet.getAddress(), packet.getPort());
                 }
                 catch(ClassNotFoundException | SocketTimeoutException | StreamCorruptedException ignored){}
             }

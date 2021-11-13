@@ -10,12 +10,12 @@ public class PlayerInfo implements Serializable {
     public final String name;
     public final int id;
     public final String ipAddress;
-    public final short port;
+    public final int port;
     public NodeRole role;
     public final PlayerType type;
     private int score = 0;
 
-    public PlayerInfo(String name, int id, String ipAddress, short port, NodeRole role, PlayerType type) {
+    public PlayerInfo(String name, int id, String ipAddress, int port, NodeRole role, PlayerType type) {
         this.name = name;
         this.id = id;
         this.ipAddress = ipAddress;

@@ -2,7 +2,9 @@ package application.gamedata;
 
 import application.enums.Direction;
 
-public class Coord {
+import java.io.Serializable;
+
+public class Coord  implements Serializable {
     public final int x;
     public final int y;
     public Coord(int x, int y) {

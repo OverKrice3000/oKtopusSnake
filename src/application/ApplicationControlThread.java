@@ -6,19 +6,24 @@ import application.enums.PlayerType;
 import application.gamedata.GameConfig;
 import application.gamedata.PlayerInfo;
 import application.graphics.Application;
+import application.messages.*;
 
-import java.io.IOException;
+import java.io.*;
+import java.net.DatagramPacket;
+import java.net.Inet4Address;
 import java.net.MulticastSocket;
+import java.net.SocketTimeoutException;
 
 /**
  * This class represents thread, which controls game process
  */
 public class ApplicationControlThread extends Thread {
     private final int myId;
+    private int mySeq = 0;
     /**
      * Latest state of the game
      */
-    private final GameState currentState;
+    private GameState currentState;
     /**
      * Graphic application
      */
@@ -26,6 +31,13 @@ public class ApplicationControlThread extends Thread {
 
     private NodeRole role;
     private final MulticastSocket socket;
+
+    private long lastAnnounceUpdate;
+    private long lastStateUpdate;
+
+    private Inet4Address masterAddr;
+    private int masterPort;
+    private int masterId;
 
     /**
      * This constructor is invoked when player decided to start a new game.
@@ -40,27 +52,185 @@ public class ApplicationControlThread extends Thread {
         this.socket = socket;
         myId = 0;
         role = NodeRole.MASTER;
-        PlayerInfo master = new PlayerInfo("Master", myId, "", (short)25565, NodeRole.MASTER, PlayerType.HUMAN); //TODO port & name from application
+        PlayerInfo master = new PlayerInfo("Master", myId, "", socket.getLocalPort(), NodeRole.MASTER, PlayerType.HUMAN); //TODO name from application
         currentState = new GameState(gameConfig, master);
+
+        lastAnnounceUpdate = System.currentTimeMillis();
+        lastStateUpdate = lastAnnounceUpdate;
+    }
+
+    public ApplicationControlThread(Application app, MulticastSocket socket, Inet4Address masterAddr, int masterPort) throws IOException, ClassNotFoundException {
+        this.app = app;
+        this.socket = socket;
+        role = NodeRole.NORMAL;
+
+        this.masterAddr = masterAddr;
+        this.masterPort = masterPort;
+
+        JoinMessage message = new JoinMessage(
+                mySeq++, 0, 0,
+                PlayerType.HUMAN,
+                false, "Player");
+        ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+        ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
+        objOut.writeObject(message);
+        DatagramPacket sendPacket = new DatagramPacket(
+                byteOut.toByteArray(), byteOut.toByteArray().length,
+                masterAddr, masterPort);
+        socket.send(sendPacket);
+
+        socket.setSoTimeout(1000);
+
+        byte[] buf = new byte[4096];
+        DatagramPacket recvPacket = new DatagramPacket(buf, 4096);
+        socket.receive(recvPacket);
+        System.out.println("RECEIVED!");
+        ByteArrayInputStream byteIn = new ByteArrayInputStream(buf);
+        ObjectInputStream objIn = new ObjectInputStream(byteIn);
+        Object recvObj = objIn.readObject(); // TODO class not found exception
+        if(recvObj.getClass() != AckMessage.class)
+            throw new ClassNotFoundException();
+
+        AckMessage answer = (AckMessage)recvObj;
+        myId = answer.receiverId;
+        masterId = answer.senderId;
+
+        lastAnnounceUpdate = System.currentTimeMillis();
+        lastStateUpdate = lastAnnounceUpdate;
+    }
+
+    private int processTimeoutTasks() throws IOException, InterruptedException {
+        int minimalTimeout = 1000;
+        int currentTimeout;
+
+        if(role == NodeRole.MASTER) {
+            currentTimeout = (int) (1000 - (System.currentTimeMillis() - lastAnnounceUpdate));
+            if (currentTimeout <= 0) {
+                AnnouncementMessage message = new AnnouncementMessage(
+                        mySeq++, 0, 0,
+                        currentState.players.values().toArray(new PlayerInfo[0]),
+                        currentState.config, true); //TODO change canjoin
+                ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+                ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
+                objOut.writeObject(message);
+                DatagramPacket packet = new DatagramPacket(
+                        byteOut.toByteArray(), byteOut.toByteArray().length,
+                        Inet4Address.getByName("239.192.0.4"), 9192);
+                socket.send(packet);
+                lastAnnounceUpdate = System.currentTimeMillis();
+            }
+        }
+
+        if(role == NodeRole.MASTER) {
+            currentTimeout = (int) (currentState.config.iterationDelayMs - (System.currentTimeMillis() - lastStateUpdate));
+            if (currentTimeout <= 0) {
+                currentState.changeState();
+                for (Integer playerId : currentState.players.keySet()) {
+                    StateMessage message = new StateMessage(mySeq++, myId, playerId, currentState);
+                    ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+                    ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
+                    objOut.writeObject(message);
+                    DatagramPacket packet = new DatagramPacket(
+                            byteOut.toByteArray(), byteOut.toByteArray().length,
+                            Inet4Address.getByName(currentState.players.get(playerId).ipAddress),
+                            currentState.players.get(playerId).port);
+                    socket.send(packet);
+                }
+                app.paintState(currentState);
+
+                lastStateUpdate = System.currentTimeMillis();
+                currentTimeout = currentState.config.iterationDelayMs;
+            }
+            if (currentTimeout < minimalTimeout)
+                minimalTimeout = currentTimeout;
+        }
+
+        return minimalTimeout;
+    }
+
+    private void processReceivedPacket(DatagramPacket recvPacket) throws IOException, ClassNotFoundException {
+        ByteArrayInputStream byteIn = new ByteArrayInputStream(recvPacket.getData());
+        ObjectInputStream objIn = new ObjectInputStream(byteIn);
+        Object recvObj = objIn.readObject();
+
+        if(role == NodeRole.MASTER && recvObj.getClass() == SteerMessage.class){
+            SteerMessage message = (SteerMessage)recvObj;
+            currentState.changeSnakeDirection(message.senderId, message.direction);
+        }
+        else if(role == NodeRole.MASTER && recvObj.getClass() == JoinMessage.class){
+            JoinMessage recvMessage = (JoinMessage)recvObj;
+            // TODO check if can join
+            //TODO change id
+            AckMessage message = new AckMessage(recvMessage.seq, myId, 1);
+            ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+            ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
+            objOut.writeObject(message);
+            DatagramPacket packet = new DatagramPacket(
+                    byteOut.toByteArray(), byteOut.toByteArray().length,
+                    recvPacket.getAddress(),
+                    recvPacket.getPort());
+            socket.send(packet);
+
+            PlayerInfo newPlayer = new PlayerInfo(
+                    recvMessage.name, 1,
+                    recvPacket.getAddress().getHostAddress(), recvPacket.getPort(),
+                    NodeRole.NORMAL, recvMessage.playerType
+            );
+            currentState.players.put(newPlayer.id, newPlayer);
+            currentState.addNewSnake(newPlayer.id);
+        }
+        else if(role == NodeRole.NORMAL && recvObj.getClass() == StateMessage.class){
+            StateMessage recvMessage = (StateMessage) recvObj;
+            //TODO check state id
+            currentState = recvMessage.state;
+            app.paintState(currentState);
+        }
     }
 
     public void run(){
+        byte[] buf = new byte[4096];
+        DatagramPacket recvPacket = new DatagramPacket(buf, 4096);
+        int currentSockTimeout = 0;
+        long lastUpdate = System.currentTimeMillis();
         while(true){
-            long millis = System.currentTimeMillis();;
             try {
-                app.paintState(currentState);
-                System.out.println(System.currentTimeMillis() - millis);
-                sleep(currentState.config.iterationDelayMs);
-                millis = System.currentTimeMillis();
-                currentState.changeState();
+                if(interrupted())
+                    break;
+                currentSockTimeout -= System.currentTimeMillis() - lastUpdate;
+                if(currentSockTimeout <= 0)
+                    currentSockTimeout = processTimeoutTasks();
+                socket.setSoTimeout(currentSockTimeout);
+                socket.receive(recvPacket);
+                processReceivedPacket(recvPacket);
+            } catch(SocketTimeoutException | ClassNotFoundException e){
+                continue;
             } catch (InterruptedException e) {
                 break;
+            } catch (IOException e){
+                e.printStackTrace();
+                System.exit(-1);
             }
         }
     }
 
     public void changeSnakeDirection(Direction direction){
-        currentState.changeSnakeDirection(myId, direction);
+        if(role == NodeRole.MASTER) {
+            currentState.changeSnakeDirection(myId, direction);
+        }
+        else{
+            try {
+                SteerMessage message = new SteerMessage(mySeq++, myId, masterId, direction);
+                ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+                ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
+                objOut.writeObject(message);
+                DatagramPacket packet = new DatagramPacket(byteOut.toByteArray(), byteOut.toByteArray().length,
+                                                                            masterAddr, masterPort);
+                socket.send(packet);
+            } catch(IOException e){
+                e.printStackTrace();
+                System.exit(-1);
+            }
+        }
     }
     /**
      * This constructor is invoked when player decided to join existing game.

@@ -5,17 +5,18 @@ import application.gamedata.Coord;
 import application.gamedata.GameConfig;
 import application.gamedata.PlayerInfo;
 
+import java.io.Serializable;
 import java.util.*;
 import java.util.function.Predicate;
 
-public class GameState {
+public class GameState implements Serializable {
 
     enum SnakeState {
         ALIVE,
         ZOMBIE
     }
 
-    public class Snake {
+    public class Snake implements Serializable {
 
         final int playerId;
         public final Deque<Coord> body;
@@ -224,7 +225,7 @@ public class GameState {
         snakes.get(ownerId).changeDirection(direction);
     }
 
-    private boolean addNewSnake(int playerId){
+    public boolean addNewSnake(int playerId){
         ArrayList<Coord> emptyList = getEmptyTilesList();
         Random rand = new Random();
         while(!emptyList.isEmpty()){

@@ -5,15 +5,14 @@ import application.enums.PlayerType;
 import application.gamedata.GameConfig;
 import application.gamedata.PlayerInfo;
 import application.messages.AnnouncementMessage;
-import application.messages.ErrorMessage;
-import application.messages.Message;
 
-import javax.xml.crypto.Data;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.ObjectOutputStream;
-import java.net.*;
-import java.nio.charset.StandardCharsets;
+import java.net.DatagramPacket;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.MulticastSocket;
 
 public class JoinableTestThread extends Thread{
     @Override

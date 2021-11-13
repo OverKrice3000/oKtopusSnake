@@ -3,17 +3,13 @@ package application.graphics;
 import application.ApplicationControlThread;
 import application.GameState;
 import application.JoinableGameReceiverThread;
-import application.JoinableTestThread;
 import application.enums.Direction;
 import application.enums.NodeRole;
-import application.enums.PlayerType;
 import application.gamedata.Coord;
 import application.gamedata.GameConfig;
 import application.gamedata.PlayerInfo;
 import application.messages.AnnouncementMessage;
-import jdk.jfr.Unsigned;
 
-import javax.sql.rowset.Joinable;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
@@ -67,6 +63,12 @@ public class Application {
     private final MulticastSocket controlMulticastSocket;
 
     private class JoinableGame{
+        public final Inet4Address masterAddr;
+        public final int masterPort;
+        public final GameConfig masterConfig;
+        private long lastUpdate;
+        private boolean canJoin;
+
         public final JLabel master = new JLabel();
         public final Component masterUpRigidBox = Box.createRigidArea(new Dimension(0, 5));
         public final Component masterBottomRigidBox = Box.createRigidArea(new Dimension(0, 5));
@@ -83,14 +85,21 @@ public class Application {
         public final Component turnDurationUpRigidBox = Box.createRigidArea(new Dimension(0, 5));
         public final Component turnDurationBottomRigidBox = Box.createRigidArea(new Dimension(0, 5));
         public final JButton join = new JButton("Join");
-        private long lastUpdate;
-        private boolean canJoin;
+
+        private JoinableGame(Inet4Address masterAddr, int masterPort, GameConfig masterConfig) {
+            this.masterAddr = masterAddr;
+            this.masterPort = masterPort;
+            this.masterConfig = masterConfig;
+        }
     }
 
     private class SnakeCanvas extends Canvas{
-        private GameState currentState;
+        private GameState currentState = null;
 
         public void paint(Graphics g){
+            if(currentState == null)
+                return;
+            this.setIgnoreRepaint(true);
             super.paint(g);
             g.setColor(Color.BLACK);
             g.drawRect(firstPixX, firstPixY, currentState.config.width * stepPix, currentState.config.height * stepPix);
@@ -119,6 +128,7 @@ public class Application {
             for(Coord food: currentState.foods){
                 g.fillRect(food.x * stepPix + firstPixX, food.y * stepPix + firstPixY, stepPix, stepPix);
             }
+            this.setIgnoreRepaint(false);
         }
         public void paintState(GameState state){
             this.currentState = state;
@@ -143,7 +153,9 @@ public class Application {
         recvGameMulticastSocket = new MulticastSocket(9192);
         recvGameMulticastSocket.setSoTimeout(3000);
         recvGameMulticastSocket.setTimeToLive(255);
+        recvGameMulticastSocket.joinGroup(InetAddress.getByName("239.192.0.4"));
         joinReceiverThread = new JoinableGameReceiverThread(this, recvGameMulticastSocket);
+        joinReceiverThread.setName("Join Receiver Thread");
         joinReceiverThread.start();
 
         controlMulticastSocket = new MulticastSocket();
@@ -168,7 +180,10 @@ public class Application {
         newGame.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
+                joinReceiverThread.interrupt();
+                joinReceiverThread = null;
                 showMenu(MenuIndex.GAME);
+                snakeCanvas.createBufferStrategy(4);
                 stepPix = Math.min(940 / currentConfig.width, 920 / currentConfig.height);
                 firstPixX = (940 - stepPix * currentConfig.width) / 2;
                 firstPixY = (920 - stepPix * currentConfig.height) / 2;
@@ -179,8 +194,8 @@ public class Application {
                 firstPixY += shift;
                 lastPixX += shift;
                 lastPixY += shift;
-                joinReceiverThread.interrupt();
                 gameController = new ApplicationControlThread(currentConfig, appLink, controlMulticastSocket);
+                gameController.setName("Game Controller");
                 gameController.start();
             }
         });
@@ -461,6 +476,7 @@ public class Application {
                 scorePanel.removeAll();
                 playerLabels.clear();
                 joinReceiverThread = new JoinableGameReceiverThread(appLink, recvGameMulticastSocket);
+                joinReceiverThread.setName("Join Receiver Thread");
                 joinReceiverThread.start();
                 showMenu(MenuIndex.MAIN);
             }
@@ -568,12 +584,12 @@ public class Application {
         configTimeoutTextField.setText(String.valueOf(currentConfig.nodeTimeoutMs));
     }
 
-    public void processAnnouncementMessage(AnnouncementMessage message, Inet4Address address){
+    public void processAnnouncementMessage(AnnouncementMessage message, Inet4Address address, int port){
         int ipaddr = ipaddrToInt(address);
         if(joinableGames.containsKey(ipaddr))
             updateJoinableGame(message, address);
         else
-            addJoinableGame(message, address);
+            addJoinableGame(message, address, port);
     }
 
     private void updateJoinableGame(AnnouncementMessage message, Inet4Address address){
@@ -592,8 +608,8 @@ public class Application {
         menuPanels.get(MenuIndex.JOIN).updateUI();
     }
 
-    private void addJoinableGame(AnnouncementMessage message, Inet4Address address){
-        JoinableGame game = new JoinableGame();
+    private void addJoinableGame(AnnouncementMessage message, Inet4Address address, int port){
+        JoinableGame game = new JoinableGame(address, port, message.config);
         int masterIndex;
         for(masterIndex = 0; masterIndex < message.players.length; masterIndex++){
             if(message.players[masterIndex].role == NodeRole.MASTER)
@@ -613,6 +629,38 @@ public class Application {
         game.foodOnField.setAlignmentX(Component.CENTER_ALIGNMENT);
         game.turnDuration.setAlignmentX(Component.CENTER_ALIGNMENT);
         game.join.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        Application appLink = this;
+
+        game.join.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                ApplicationControlThread temp = null;
+                try {
+                    temp = new ApplicationControlThread(appLink, controlMulticastSocket, address, port);
+                } catch (IOException | ClassNotFoundException ioException) {
+                    return;
+                }
+
+                joinReceiverThread.interrupt();
+                currentConfig = game.masterConfig;
+                snakeCanvas.createBufferStrategy(4);
+                stepPix = Math.min(940 / currentConfig.width, 920 / currentConfig.height);
+                firstPixX = (940 - stepPix * currentConfig.width) / 2;
+                firstPixY = (920 - stepPix * currentConfig.height) / 2;
+                lastPixX = firstPixX + stepPix * currentConfig.width;
+                lastPixY = firstPixY + stepPix * currentConfig.height;
+                int shift = Math.min((970 - lastPixX) / 2, (930 - lastPixY) / 2);
+                firstPixX += shift;
+                firstPixY += shift;
+                lastPixX += shift;
+                lastPixY += shift;
+                showMenu(MenuIndex.GAME);
+                gameController = temp;
+                gameController.setName("Game Controller");
+                gameController.start();
+            }
+        });
 
         joinMasterPanel.add(game.masterUpRigidBox);
         joinMasterPanel.add(game.master);
