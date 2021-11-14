@@ -98,10 +98,9 @@ public class Application {
         private GameState currentState = null;
 
         public void paint(Graphics g){
+            super.paint(g);
             if(currentState == null)
                 return;
-            this.setIgnoreRepaint(true);
-            super.paint(g);
             g.setColor(Color.BLACK);
             g.drawRect(firstPixX, firstPixY, currentState.config.width * stepPix, currentState.config.height * stepPix);
             g.setColor(Color.BLUE);
@@ -171,6 +170,7 @@ public class Application {
         System.out.println(recvGameMulticastSocket.getNetworkInterface().getName());
         //recvGameMulticastSocket.setNetworkInterface(NetworkInterface.getByIndex(12));
 
+        recvGameMulticastSocket.joinGroup(InetAddress.getByName("239.192.0.4"));
         joinReceiverThread = new JoinableGameReceiverThread(this, recvGameMulticastSocket);
         joinReceiverThread.setName("Join Receiver Thread");
         joinReceiverThread.start();
@@ -199,13 +199,13 @@ public class Application {
         newGame.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                joinReceiverThread.interrupt();
                 try {
-                    joinReceiverThread.join();
-                } catch (InterruptedException ee) {
-                    ee.printStackTrace();
+                    recvGameMulticastSocket.leaveGroup(InetAddress.getByName("239.192.0.4"));
+                } catch (IOException ioException) {
+                    ioException.printStackTrace();
                     System.exit(-1);
                 }
+                joinReceiverThread.interrupt();
                 joinReceiverThread = null;
                 showMenu(MenuIndex.GAME);
                 snakeCanvas.createBufferStrategy(4);
@@ -491,10 +491,18 @@ public class Application {
                 gameController = null;
                 scorePanel.removeAll();
                 playerLabels.clear();
+                try {
+                    recvGameMulticastSocket.joinGroup(InetAddress.getByName("239.192.0.4"));
+                } catch (IOException ioException) {
+                    ioException.printStackTrace();
+                    System.exit(-1);
+                }
                 joinReceiverThread = new JoinableGameReceiverThread(appLink, recvGameMulticastSocket);
                 joinReceiverThread.setName("Join Receiver Thread");
                 joinReceiverThread.start();
                 showMenu(MenuIndex.MAIN);
+                snakeCanvas.currentState = null;
+                snakeCanvas.repaint();
             }
         });
         rightGamePanel.add(scorePanel);
@@ -658,13 +666,13 @@ public class Application {
                 } catch (IOException ioException) {
                     return;
                 }
-                joinReceiverThread.interrupt();
                 try {
-                    joinReceiverThread.join();
-                } catch (InterruptedException ee) {
-                    ee.printStackTrace();
+                    recvGameMulticastSocket.leaveGroup(InetAddress.getByName("239.192.0.4"));
+                } catch (IOException ioException) {
+                    ioException.printStackTrace();
                     System.exit(-1);
                 }
+                joinReceiverThread.interrupt();
                 currentConfig = game.masterConfig;
                 showMenu(MenuIndex.GAME);
                 snakeCanvas.createBufferStrategy(4);
