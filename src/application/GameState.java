@@ -11,7 +11,7 @@ import java.util.function.Predicate;
 
 public class GameState implements Serializable {
 
-    enum SnakeState {
+    public enum SnakeState {
         ALIVE,
         ZOMBIE
     }
@@ -30,6 +30,10 @@ public class GameState implements Serializable {
             Coord tailRel = new Coord(-currentDirection.x, -currentDirection.y);
             this.body.addLast(tailRel);
             this.currentDirection = currentDirection;
+        }
+
+        public SnakeState getState(){
+            return state;
         }
 
         private void changeDirection(Direction direction){

@@ -68,19 +68,19 @@ public class ApplicationControlThread extends Thread {
      * @param gameConfig config, chosen by a player.
      * @param app graphic application.
      */
-    public ApplicationControlThread(GameConfig gameConfig, Application app, MulticastSocket socket) {
+    public ApplicationControlThread(GameConfig gameConfig, Application app, MulticastSocket socket, String name) {
         this.app = app;
         this.socket = socket;
         myId = 0;
         role = NodeRole.MASTER;
-        PlayerInfo master = new PlayerInfo("Master", myId, "", socket.getLocalPort(), NodeRole.MASTER, PlayerType.HUMAN); //TODO name from application
+        PlayerInfo master = new PlayerInfo(name, myId, "", socket.getLocalPort(), NodeRole.MASTER, PlayerType.HUMAN); //TODO name from application
         currentState = new GameState(gameConfig, master);
 
         lastAnnounce = System.currentTimeMillis();
         lastStateUpdate = lastAnnounce;
     }
 
-    public ApplicationControlThread(Application app, MulticastSocket socket, GameConfig config, Inet4Address masterAddr, int masterPort, int masterId) throws IOException {
+    public ApplicationControlThread(Application app, MulticastSocket socket, GameConfig config, Inet4Address masterAddr, int masterPort, int masterId, String name) throws IOException {
         this.app = app;
         this.socket = socket;
         role = NodeRole.NORMAL;
@@ -92,7 +92,7 @@ public class ApplicationControlThread extends Thread {
         JoinMessage message = new JoinMessage(
                 mySeq++, 0, masterId,
                 PlayerType.HUMAN,
-                false, "Player");
+                false, name);
         sendPacket(message, masterAddr, masterPort, false);
 
         byte[] buf = new byte[4096];

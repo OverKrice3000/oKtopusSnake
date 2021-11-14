@@ -35,7 +35,7 @@ public class Application {
 
 
     private TreeMap<Integer, JLabel> playerLabels = new TreeMap<>();
-    private TreeMap<Integer, JoinableGame> joinableGames = new TreeMap<>();
+    private TreeMap<Long, JoinableGame> joinableGames = new TreeMap<>();
 
     private int firstPixX;
     private int firstPixY;
@@ -104,9 +104,13 @@ public class Application {
             if(currentState == null)
                 return;
             g.setColor(Color.BLACK);
-            g.drawRect(firstPixX, firstPixY, currentState.config.width * stepPix, currentState.config.height * stepPix);
-            g.setColor(Color.BLUE);
+            g.drawRect(firstPixX, firstPixY, currentState.config.width * stepPix,
+                    currentState.config.height * stepPix);
             for(GameState.Snake snake: currentState.snakes.values()){
+                if(snake.getState() == GameState.SnakeState.ALIVE)
+                    g.setColor(Color.BLUE);
+                else if(snake.getState() == GameState.SnakeState.ZOMBIE)
+                    g.setColor(new Color(82, 38, 89));
                 int curX = snake.body.peekFirst().x;
                 int curY = snake.body.peekFirst().y;
                 synchronized (snake){
@@ -201,6 +205,11 @@ public class Application {
         newGame.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
+                String name = JOptionPane.showInputDialog("Enter your name");
+                if(name == null)
+                    return;
+                int lastIndex = Math.min(30, name.length());
+                name = name.substring(0, lastIndex);
                 try {
                     recvGameMulticastSocket.leaveGroup(InetAddress.getByName("239.192.0.4"));
                 } catch (IOException ioException) {
@@ -212,7 +221,7 @@ public class Application {
                 showMenu(MenuIndex.GAME);
                 snakeCanvas.createBufferStrategy(4);
                 initializeGameFieldConstants();
-                gameController = new ApplicationControlThread(currentConfig, appLink, controlMulticastSocket);
+                gameController = new ApplicationControlThread(currentConfig, appLink, controlMulticastSocket, name);
                 gameController.setName("Game Controller");
                 gameController.start();
             }
@@ -623,32 +632,34 @@ public class Application {
     }
 
     public void processAnnouncementMessage(AnnouncementMessage message, Inet4Address address, int port){
-        int ipaddr = ipaddrToInt(address);
+        long ipaddr = ipaddrToLong(address, port);
         System.out.println(address.getHostAddress());
         System.out.println(ipaddr);
         System.out.println(joinableGames.containsKey(ipaddr));
         if(joinableGames.containsKey(ipaddr))
-            updateJoinableGame(message, address);
+            updateJoinableGame(message, address, port);
         else
             addJoinableGame(message, address, port);
     }
 
-    private void updateJoinableGame(AnnouncementMessage message, Inet4Address address){
-        JoinableGame game = joinableGames.get(ipaddrToInt(address));
+    private void updateJoinableGame(AnnouncementMessage message, Inet4Address address, int port){
+        JoinableGame game = joinableGames.get(ipaddrToLong(address, port));
         int masterIndex = -1;
+        PlayerInfo master = null;
         for(int i = 0; i < message.players.length; i++){
             if(message.players[i].role == NodeRole.MASTER){
-                masterIndex = message.players[i].id;
+                master = message.players[i];
+                masterIndex = master.id;
                 break;
             }
         }
         assert(masterIndex != -1);
         game.masterIndex = masterIndex;
         game.masterAddr = address;
-        game.masterPort = message.players[masterIndex].port;
+        game.masterPort = master.port;
         game.masterConfig = message.config;
         game.canJoin = message.canJoin;
-        game.master.setText(message.players[masterIndex].name + "[" + address.getHostAddress() + "]" + "[" + game.masterIndex + "]");
+        game.master.setText(master.name + "[" + address.getHostAddress() + ":" + port + "]");
         game.numOfPlayers.setText(String.valueOf(message.players.length));
         game.fieldSize.setText(message.config.width + "x" + message.config.height);
         game.foodOnField.setText(message.config.foodStatic + " + " + message.config.foodPerPlayer + "x");
@@ -658,13 +669,18 @@ public class Application {
     }
 
     private void addJoinableGame(AnnouncementMessage message, Inet4Address address, int port){
-        int masterIndex;
-        for(masterIndex = 0; masterIndex < message.players.length; masterIndex++){
-            if(message.players[masterIndex].role == NodeRole.MASTER)
+        int masterIndex = -1;
+        PlayerInfo master = null;
+        for(int i = 0; i < message.players.length; i++){
+            if(message.players[i].role == NodeRole.MASTER){
+                master = message.players[i];
+                masterIndex = master.id;
                 break;
+            }
         }
+        assert(masterIndex != -1);
         JoinableGame game = new JoinableGame(masterIndex, address, port, message.config);
-        game.master.setText(message.players[masterIndex].name + "[" + address.getHostAddress() + "]");
+        game.master.setText(master.name + "[" + address.getHostAddress() + ":" + port + "]");
         game.numOfPlayers.setText(String.valueOf(message.players.length));
         game.fieldSize.setText(message.config.width + "x" + message.config.height);
         game.foodOnField.setText(message.config.foodStatic + " + " + message.config.foodPerPlayer + "x");
@@ -685,13 +701,23 @@ public class Application {
         game.join.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
+                String name = JOptionPane.showInputDialog("Enter your name");
+                if(name == null)
+                    return;
+                int lastIndex = Math.min(30, name.length());
+                name = name.substring(0, lastIndex);
                 if(!game.canJoin){
                     JOptionPane.showMessageDialog(window, "Game is full!");
                     return;
                 }
                 ApplicationControlThread temp;
                 try {
-                    temp = new ApplicationControlThread(appLink, controlMulticastSocket, game.masterConfig,  game.masterAddr, game.masterPort, game.masterIndex);
+                    temp = new ApplicationControlThread(
+                            appLink, controlMulticastSocket,
+                            game.masterConfig,  game.masterAddr,
+                            game.masterPort, game.masterIndex,
+                            name
+                    );
                 } catch(SocketTimeoutException timeout){
                     JOptionPane.showMessageDialog(window, "Server did not answer");
                     return;
@@ -734,7 +760,7 @@ public class Application {
         joinTurnDurationPanel.add(game.turnDuration);
         joinTurnDurationPanel.add(game.turnDurationBottomRigidBox);
         joinButtonPanel.add(game.join);
-        joinableGames.put(ipaddrToInt(address), game);
+        joinableGames.put(ipaddrToLong(address, port), game);
         menuPanels.get(MenuIndex.JOIN).updateUI();
     }
 
@@ -751,30 +777,31 @@ public class Application {
         lastPixY += shift;
     }
 
-    private int ipaddrToInt(Inet4Address addr){
+    private long ipaddrToLong(Inet4Address addr, int port){
         String[] addrBytes = addr.getHostAddress().split("\\.");
-        int ipaddrInt = 0;
+        long ipaddrLong = 0;
         for(int i = 0; i < 4; i++){
-            ipaddrInt += (Integer.parseInt(addrBytes[3 - i]) & 0b11111111)  << (i * 8);
+            ipaddrLong += (Integer.parseInt(addrBytes[3 - i]) & 0b11111111)  << (i * 8);
         }
-        return ipaddrInt;
+        ipaddrLong += ((long)(port)) << 32;
+        return ipaddrLong;
     }
 
     public void removeOutdatedGames(){
-        ArrayList<Integer> toRemove = new ArrayList<>(joinableGames.size());
-        for(Integer gameIndex: joinableGames.keySet()){
+        ArrayList<Long> toRemove = new ArrayList<>(joinableGames.size());
+        for(Long gameIndex: joinableGames.keySet()){
             if(System.currentTimeMillis() - joinableGames.get(gameIndex).lastUpdate > 3000){
                 removeJoinableGameLabels(gameIndex);
                 toRemove.add(gameIndex);
             }
         }
-        for(Integer gameIndex: toRemove){
+        for(Long gameIndex: toRemove){
             joinableGames.remove(gameIndex);
         }
         menuPanels.get(MenuIndex.JOIN).updateUI();
     }
 
-    public void removeJoinableGameLabels(int gameIndex){
+    public void removeJoinableGameLabels(long gameIndex){
         JoinableGame game = joinableGames.get(gameIndex);
         joinMasterPanel.remove(game.masterUpRigidBox);
         joinMasterPanel.remove(game.master);
@@ -795,7 +822,7 @@ public class Application {
     }
 
     public void clearJoinableGames(){
-        for(Integer gameIndex: joinableGames.keySet()){
+        for(Long gameIndex: joinableGames.keySet()){
             removeJoinableGameLabels(gameIndex);
         }
         joinableGames.clear();
