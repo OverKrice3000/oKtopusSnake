@@ -22,18 +22,15 @@ public class JoinableGameReceiverThread extends Thread {
     }
     @Override
     public void run() {
-        /*Enumeration enumeration =  NetworkInterface.getNetworkInterfaces();
-        while(enumeration.hasMoreElements()){
-            System.out.println(enumeration.nextElement());
-        }
-        */
         try {
+            socket.joinGroup(InetAddress.getByName("239.192.0.4"));
             byte[] buf = new byte[4096];
             DatagramPacket packet = new DatagramPacket(buf, 4096);
             outdatedGamesLastChecked = System.currentTimeMillis();
             while(true){
                 if(interrupted()) {
                     app.clearJoinableGames();
+                    socket.leaveGroup(InetAddress.getByName("239.192.0.4"));
                     break;
                 }
                 if(System.currentTimeMillis() - outdatedGamesLastChecked > 3000){
@@ -55,6 +52,7 @@ public class JoinableGameReceiverThread extends Thread {
             }
         } catch (IOException e) {
             e.printStackTrace();
+            System.exit(-1);
         }
     }
 }

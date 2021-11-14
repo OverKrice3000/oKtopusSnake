@@ -128,6 +128,11 @@ public class GameState implements Serializable {
         addNeededFood();
     }
 
+    public GameState(GameConfig config){
+        stateId = 0;
+        this.config = config;
+    }
+
     public int getStateId() {
         return stateId;
     }
@@ -188,7 +193,6 @@ public class GameState implements Serializable {
     private void startNewGame() throws InterruptedException {
         foods.clear();
         Thread.sleep(1000);
-        stateId = 0;
         for(PlayerInfo player: players.values()){
             addNewSnake(player.id);
         }

@@ -20,7 +20,7 @@ public class GameConfig implements Serializable {
 
     public final static GameConfig minimals = new GameConfig(
             5, 5, 0, 0,
-            1, 0, 1, 1
+            1, 0, 10, 10
     );
     public final static GameConfig maximums = new GameConfig(
             300, 300, 300, 300,

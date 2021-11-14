@@ -19,6 +19,7 @@ import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.net.*;
 import java.util.EnumMap;
+import java.util.Enumeration;
 import java.util.TreeMap;
 
 public class Application {
@@ -150,16 +151,34 @@ public class Application {
         createJoinMenu();
         createGameMenu();
 
+        /*Enumeration<NetworkInterface> ifaces = NetworkInterface.getNetworkInterfaces();
+        while(ifaces.hasMoreElements()){
+            NetworkInterface iface = ifaces.nextElement();
+            System.out.println(iface.getName() + " " + iface.getIndex() + " " + iface.getDisplayName());
+        }
+
+        NetworkInterface iface = NetworkInterface.getByIndex(12);
+        System.out.println(iface.getIndex());
+        Enumeration<InetAddress> enumer = iface.getInetAddresses();
+        while(enumer.hasMoreElements()){
+            System.out.println(enumer.nextElement().getHostAddress());
+        }*/
+
         recvGameMulticastSocket = new MulticastSocket(9192);
         recvGameMulticastSocket.setSoTimeout(3000);
         recvGameMulticastSocket.setTimeToLive(255);
-        recvGameMulticastSocket.joinGroup(InetAddress.getByName("239.192.0.4"));
+        recvGameMulticastSocket.setInterface(InetAddress.getByName("192.168.0.10"));
+        System.out.println(recvGameMulticastSocket.getNetworkInterface().getName());
+        //recvGameMulticastSocket.setNetworkInterface(NetworkInterface.getByIndex(12));
+
         joinReceiverThread = new JoinableGameReceiverThread(this, recvGameMulticastSocket);
         joinReceiverThread.setName("Join Receiver Thread");
         joinReceiverThread.start();
 
-        controlMulticastSocket = new MulticastSocket(25565);
+        controlMulticastSocket = new MulticastSocket();
         controlMulticastSocket.setTimeToLive(255);
+        controlMulticastSocket.setInterface(InetAddress.getByName("192.168.0.10"));
+        System.out.println(controlMulticastSocket.getNetworkInterface().getName());
 
         window.setVisible(true);
     }
@@ -181,19 +200,16 @@ public class Application {
             @Override
             public void mouseClicked(MouseEvent e) {
                 joinReceiverThread.interrupt();
+                try {
+                    joinReceiverThread.join();
+                } catch (InterruptedException ee) {
+                    ee.printStackTrace();
+                    System.exit(-1);
+                }
                 joinReceiverThread = null;
                 showMenu(MenuIndex.GAME);
                 snakeCanvas.createBufferStrategy(4);
-                stepPix = Math.min(940 / currentConfig.width, 920 / currentConfig.height);
-                firstPixX = (940 - stepPix * currentConfig.width) / 2;
-                firstPixY = (920 - stepPix * currentConfig.height) / 2;
-                lastPixX = firstPixX + stepPix * currentConfig.width;
-                lastPixY = firstPixY + stepPix * currentConfig.height;
-                int shift = Math.min((970 - lastPixX) / 2, (930 - lastPixY) / 2);
-                firstPixX += shift;
-                firstPixY += shift;
-                lastPixX += shift;
-                lastPixY += shift;
+                initializeGameFieldConstants();
                 gameController = new ApplicationControlThread(currentConfig, appLink, controlMulticastSocket);
                 gameController.setName("Game Controller");
                 gameController.start();
@@ -506,17 +522,14 @@ public class Application {
     }
 
     public void paintState(GameState state){
-        SwingUtilities.invokeLater(new Runnable(){
-           @Override
-           public void run() {
-               updatePlayerLabels(state);
-               if(state.players.size() != playerLabels.size()) {
-                   addPlayerLabels(state);
-                   window.repaint();
-               }
-               snakeCanvas.paintState(state);
-           }
-       });
+        SwingUtilities.invokeLater(() -> {
+            updatePlayerLabels(state);
+            if(state.players.size() != playerLabels.size()) {
+                addPlayerLabels(state);
+                window.repaint();
+            }
+            snakeCanvas.paintState(state);
+        });
     }
 
     private void updatePlayerLabels(GameState state){
@@ -639,27 +652,23 @@ public class Application {
                     JOptionPane.showMessageDialog(window, "Game is full!");
                     return;
                 }
-                ApplicationControlThread temp = null;
+                ApplicationControlThread temp;
                 try {
-                    temp = new ApplicationControlThread(appLink, controlMulticastSocket, address, port);
-                } catch (IOException | ClassNotFoundException ioException) {
+                    temp = new ApplicationControlThread(appLink, controlMulticastSocket, game.masterConfig,  address, port);
+                } catch (IOException ioException) {
                     return;
                 }
-
                 joinReceiverThread.interrupt();
+                try {
+                    joinReceiverThread.join();
+                } catch (InterruptedException ee) {
+                    ee.printStackTrace();
+                    System.exit(-1);
+                }
                 currentConfig = game.masterConfig;
-                snakeCanvas.createBufferStrategy(4);
-                stepPix = Math.min(940 / currentConfig.width, 920 / currentConfig.height);
-                firstPixX = (940 - stepPix * currentConfig.width) / 2;
-                firstPixY = (920 - stepPix * currentConfig.height) / 2;
-                lastPixX = firstPixX + stepPix * currentConfig.width;
-                lastPixY = firstPixY + stepPix * currentConfig.height;
-                int shift = Math.min((970 - lastPixX) / 2, (930 - lastPixY) / 2);
-                firstPixX += shift;
-                firstPixY += shift;
-                lastPixX += shift;
-                lastPixY += shift;
                 showMenu(MenuIndex.GAME);
+                snakeCanvas.createBufferStrategy(4);
+                initializeGameFieldConstants();
                 gameController = temp;
                 gameController.setName("Game Controller");
                 gameController.start();
@@ -684,6 +693,19 @@ public class Application {
         joinButtonPanel.add(game.join);
         joinableGames.put(ipaddrToInt(address), game);
         menuPanels.get(MenuIndex.JOIN).updateUI();
+    }
+
+    private void initializeGameFieldConstants(){
+        stepPix = Math.min(940 / currentConfig.width, 920 / currentConfig.height);
+        firstPixX = (940 - stepPix * currentConfig.width) / 2;
+        firstPixY = (920 - stepPix * currentConfig.height) / 2;
+        lastPixX = firstPixX + stepPix * currentConfig.width;
+        lastPixY = firstPixY + stepPix * currentConfig.height;
+        int shift = Math.min((970 - lastPixX) / 2, (930 - lastPixY) / 2);
+        firstPixX += shift;
+        firstPixY += shift;
+        lastPixX += shift;
+        lastPixY += shift;
     }
 
     private int ipaddrToInt(Inet4Address addr){

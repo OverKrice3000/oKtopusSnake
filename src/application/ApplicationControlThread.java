@@ -9,10 +9,11 @@ import application.graphics.Application;
 import application.messages.*;
 
 import java.io.*;
-import java.net.DatagramPacket;
-import java.net.Inet4Address;
-import java.net.MulticastSocket;
-import java.net.SocketTimeoutException;
+import java.net.*;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.function.Predicate;
 
 /**
  * This class represents thread, which controls game process
@@ -32,12 +33,32 @@ public class ApplicationControlThread extends Thread {
     private NodeRole role;
     private final MulticastSocket socket;
 
-    private long lastAnnounceUpdate;
+    private long lastAnnounce;
     private long lastStateUpdate;
+    private final TreeMap<Integer, Long> lastPings = new TreeMap<>();
+    private final TreeMap<Integer, Long> lastRecvs = new TreeMap<>();
+    private final TreeMap<Integer, ArrayList<ResendablePacket>> resendableQueues = new TreeMap<>();
+
 
     private Inet4Address masterAddr;
     private int masterPort;
     private int masterId;
+
+    private class ResendablePacket{
+        private final DatagramPacket packet;
+        private long lastSent;
+        private final int seq;
+
+        private ResendablePacket(DatagramPacket packet, int seq) {
+            this.packet = packet;
+            this.seq = seq;
+            lastSent = System.currentTimeMillis();
+        }
+
+        private void updateLastSend(){
+            lastSent = System.currentTimeMillis();
+        }
+    }
 
     /**
      * This constructor is invoked when player decided to start a new game.
@@ -55,14 +76,15 @@ public class ApplicationControlThread extends Thread {
         PlayerInfo master = new PlayerInfo("Master", myId, "", socket.getLocalPort(), NodeRole.MASTER, PlayerType.HUMAN); //TODO name from application
         currentState = new GameState(gameConfig, master);
 
-        lastAnnounceUpdate = System.currentTimeMillis();
-        lastStateUpdate = lastAnnounceUpdate;
+        lastAnnounce = System.currentTimeMillis();
+        lastStateUpdate = lastAnnounce;
     }
 
-    public ApplicationControlThread(Application app, MulticastSocket socket, Inet4Address masterAddr, int masterPort) throws IOException, ClassNotFoundException {
+    public ApplicationControlThread(Application app, MulticastSocket socket, GameConfig config, Inet4Address masterAddr, int masterPort) throws IOException {
         this.app = app;
         this.socket = socket;
         role = NodeRole.NORMAL;
+        currentState = new GameState(config, new PlayerInfo("Master", 0, masterAddr.getHostAddress(), masterPort, NodeRole.MASTER, PlayerType.HUMAN));
 
         this.masterAddr = masterAddr;
         this.masterPort = masterPort;
@@ -70,54 +92,62 @@ public class ApplicationControlThread extends Thread {
         JoinMessage message = new JoinMessage(
                 mySeq++, 0, 0,
                 PlayerType.HUMAN,
-                false, "Player");
-        ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
-        ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
-        objOut.writeObject(message);
-        DatagramPacket sendPacket = new DatagramPacket(
-                byteOut.toByteArray(), byteOut.toByteArray().length,
-                masterAddr, masterPort);
-        socket.send(sendPacket);
-
-        socket.setSoTimeout(1000);
+                false, "Player"); //TODO maybe send master id
+        sendPacket(message, masterAddr, masterPort, false);
 
         byte[] buf = new byte[4096];
         DatagramPacket recvPacket = new DatagramPacket(buf, 4096);
         socket.receive(recvPacket);
-        System.out.println("RECEIVED!");
         ByteArrayInputStream byteIn = new ByteArrayInputStream(buf);
         ObjectInputStream objIn = new ObjectInputStream(byteIn);
-        Object recvObj = objIn.readObject(); // TODO class not found exception
-        if(recvObj.getClass() != AckMessage.class)
-            throw new ClassNotFoundException();
+
+        int recvAckTimeout = 1000;
+        long lastRead = System.currentTimeMillis();
+
+        Object recvObj = null;
+        try {
+            while (true) {
+                recvAckTimeout -= System.currentTimeMillis() - lastRead;
+                lastRead = System.currentTimeMillis();
+                socket.setSoTimeout(recvAckTimeout);
+
+                try {
+                    recvObj = objIn.readObject();
+                    if (recvObj.getClass() == AckMessage.class)
+                        break;
+                } catch (ClassNotFoundException e) {
+                    continue;
+                }
+            }
+        } catch(SocketTimeoutException e){
+            throw new IOException("Could not join to the game");
+        }
+
 
         AckMessage answer = (AckMessage)recvObj;
         myId = answer.receiverId;
         masterId = answer.senderId;
 
-        lastAnnounceUpdate = System.currentTimeMillis();
-        lastStateUpdate = lastAnnounceUpdate;
+        lastAnnounce = System.currentTimeMillis();
+        lastStateUpdate = lastAnnounce;
+        lastPings.put(masterId, lastAnnounce);
+        lastRecvs.put(masterId, lastAnnounce);
+        int queueInitCapacity = (int)(2. / config.pingDelayMs + 2. / config.iterationDelayMs);
+        resendableQueues.put(masterId, new ArrayList<>(queueInitCapacity));
     }
 
     private int processTimeoutTasks() throws IOException, InterruptedException {
         int minimalTimeout = 1000;
         int currentTimeout;
         if(role == NodeRole.MASTER) {
-            currentTimeout = (int) (1000 - (System.currentTimeMillis() - lastAnnounceUpdate));
+            currentTimeout = (int) (1000 - (System.currentTimeMillis() - lastAnnounce));
             if (currentTimeout <= 0) {
                 boolean canJoin = (currentState.findSuitableCoord() != null);
-                AnnouncementMessage message = new AnnouncementMessage(
-                        mySeq++, 0, 0,
+                AnnouncementMessage message = new AnnouncementMessage(mySeq++, 0, 0,
                         currentState.players.values().toArray(new PlayerInfo[0]),
                         currentState.config, canJoin);
-                ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
-                ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
-                objOut.writeObject(message);
-                DatagramPacket packet = new DatagramPacket(
-                        byteOut.toByteArray(), byteOut.toByteArray().length,
-                        Inet4Address.getByName("239.192.0.4"), 9192);
-                socket.send(packet);
-                lastAnnounceUpdate = System.currentTimeMillis();
+                sendPacket(message, InetAddress.getByName("239.192.0.4"), 9192, false);
+                lastAnnounce = System.currentTimeMillis();
             }
         }
 
@@ -126,15 +156,12 @@ public class ApplicationControlThread extends Thread {
             if (currentTimeout <= 0) {
                 currentState.changeState();
                 for (Integer playerId : currentState.players.keySet()) {
+                    if(playerId == myId)
+                        continue;
                     StateMessage message = new StateMessage(mySeq++, myId, playerId, currentState);
-                    ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
-                    ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
-                    objOut.writeObject(message);
-                    DatagramPacket packet = new DatagramPacket(
-                            byteOut.toByteArray(), byteOut.toByteArray().length,
-                            Inet4Address.getByName(currentState.players.get(playerId).ipAddress),
-                            currentState.players.get(playerId).port);
-                    socket.send(packet);
+                    sendPacket(message, Inet4Address.getByName(currentState.players.get(playerId).ipAddress),
+                            currentState.players.get(playerId).port, true);
+                    lastPings.put(playerId, System.currentTimeMillis());
                 }
                 app.paintState(currentState);
 
@@ -145,6 +172,43 @@ public class ApplicationControlThread extends Thread {
                 minimalTimeout = currentTimeout;
         }
 
+        for(Map.Entry<Integer, Long> entry: lastPings.entrySet()){
+            currentTimeout = (int) (currentState.config.pingDelayMs - (System.currentTimeMillis() - entry.getValue()));
+            if(currentTimeout <= 0){
+                PingMessage message = new PingMessage(mySeq++, myId, entry.getKey());
+                sendPacket(message, InetAddress.getByName(currentState.players.get(entry.getKey()).ipAddress),
+                        currentState.players.get(entry.getKey()).port, true); //TODO ?
+                entry.setValue(System.currentTimeMillis());
+                currentTimeout = currentState.config.pingDelayMs;
+            }
+            if (currentTimeout < minimalTimeout)
+                minimalTimeout = currentTimeout;
+        }
+
+        for(Map.Entry<Integer, ArrayList<ResendablePacket>> entry: resendableQueues.entrySet()){
+            ArrayList<ResendablePacket> queue = entry.getValue();
+            for(ResendablePacket packet: queue){
+                currentTimeout = (int) (currentState.config.pingDelayMs - (System.currentTimeMillis() - packet.lastSent));
+                if(currentTimeout <= 0){
+                    System.out.println("RESEND: " + packet.seq);
+                    socket.send(packet.packet);
+                    packet.updateLastSend();
+                    currentTimeout = currentState.config.pingDelayMs;
+                }
+                if (currentTimeout < minimalTimeout)
+                    minimalTimeout = currentTimeout;
+            }
+        }
+
+        for(Map.Entry<Integer, Long> entry: lastRecvs.entrySet()){
+            currentTimeout = (int) (currentState.config.nodeTimeoutMs - (System.currentTimeMillis() - entry.getValue()));
+            if(currentTimeout <= 0){
+                //TODO PROCESS
+            }
+            else if (currentTimeout < minimalTimeout)
+                minimalTimeout = currentTimeout;
+        }
+
         return minimalTimeout;
     }
 
@@ -152,53 +216,78 @@ public class ApplicationControlThread extends Thread {
         ByteArrayInputStream byteIn = new ByteArrayInputStream(recvPacket.getData());
         ObjectInputStream objIn = new ObjectInputStream(byteIn);
         Object recvObj = objIn.readObject();
+        System.out.println(recvObj.getClass());
+
+        if(!Message.class.isAssignableFrom(recvObj.getClass()))
+            return;
+        Message recvMessage = (Message) recvObj;
+        lastRecvs.put(recvMessage.senderId, System.currentTimeMillis());
 
         if(role == NodeRole.MASTER && recvObj.getClass() == SteerMessage.class){
             SteerMessage message = (SteerMessage)recvObj;
+            System.out.println("RECEIVED STEER: " + message.seq);
             currentState.changeSnakeDirection(message.senderId, message.direction);
+            AckMessage ack = new AckMessage(message.seq, myId, message.senderId);
+            sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false);
         }
         else if(role == NodeRole.MASTER && recvObj.getClass() == JoinMessage.class){
-            JoinMessage recvMessage = (JoinMessage)recvObj;
+            JoinMessage message = (JoinMessage)recvObj;
             boolean canJoin = currentState.findSuitableCoord() != null;
             if(canJoin) {
                 int unusedId = findUnusedId();
-                AckMessage message = new AckMessage(recvMessage.seq, myId, unusedId);
-                ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
-                ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
-                objOut.writeObject(message);
-                DatagramPacket packet = new DatagramPacket(
-                        byteOut.toByteArray(), byteOut.toByteArray().length,
-                        recvPacket.getAddress(),
-                        recvPacket.getPort());
-                socket.send(packet);
-
+                AckMessage ack = new AckMessage(message.seq, myId, unusedId);
+                sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false); //TODO ?
                 PlayerInfo newPlayer = new PlayerInfo(
-                        recvMessage.name, unusedId,
+                        message.name, unusedId,
                         recvPacket.getAddress().getHostAddress(), recvPacket.getPort(),
-                        NodeRole.NORMAL, recvMessage.playerType
+                        NodeRole.NORMAL, message.playerType
                 );
                 currentState.players.put(newPlayer.id, newPlayer);
                 currentState.addNewSnake(newPlayer.id);
+                lastPings.put(newPlayer.id, System.currentTimeMillis());
+                lastRecvs.put(newPlayer.id, System.currentTimeMillis());
+                int queueInitCapacity = (int)(2. / currentState.config.pingDelayMs + 2. / currentState.config.iterationDelayMs);
+                resendableQueues.put(newPlayer.id, new ArrayList<>(queueInitCapacity));
             }
             else{
-                ErrorMessage message = new ErrorMessage(recvMessage.seq, myId, 0, "Game if full!");
-                ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
-                ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
-                objOut.writeObject(message);
-                DatagramPacket packet = new DatagramPacket(
-                        byteOut.toByteArray(), byteOut.toByteArray().length,
-                        recvPacket.getAddress(),
-                        recvPacket.getPort());
-                socket.send(packet);
+                ErrorMessage error = new ErrorMessage(mySeq++, myId, 0, "Game if full!");
+                sendPacket(error, recvPacket.getAddress(), recvPacket.getPort(), true);
             }
         }
         else if(role == NodeRole.NORMAL && recvObj.getClass() == StateMessage.class){
-            StateMessage recvMessage = (StateMessage) recvObj;
-            if(currentState.getStateId() < recvMessage.senderId) {
-                currentState = recvMessage.state;
+            StateMessage message = (StateMessage) recvObj;
+            AckMessage ack = new AckMessage(message.seq, myId, message.senderId);
+            sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false); //TODO ?
+            if(currentState == null || currentState.getStateId() < message.state.getStateId()) {
+                currentState = message.state;
                 app.paintState(currentState);
             }
         }
+        else if(recvObj.getClass() == PingMessage.class){
+            PingMessage message = (PingMessage) recvObj;
+            AckMessage ack = new AckMessage(message.seq, myId, message.senderId);
+            sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false);
+        }
+        else if(recvObj.getClass() == AckMessage.class){
+            AckMessage message = (AckMessage) recvObj;
+            System.out.println("RECEIVED ACK: " + message.seq);
+            resendableQueues.get(message.senderId).removeIf(new Predicate<ResendablePacket>() {
+                @Override
+                public boolean test(ResendablePacket resendablePacket) {
+                    return resendablePacket.seq == message.seq;
+                }
+            });
+        }
+    }
+
+    private void sendPacket(Message message, InetAddress address, int port, boolean resend) throws IOException {
+        ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
+        ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
+        objOut.writeObject(message);
+        DatagramPacket packet = new DatagramPacket(byteOut.toByteArray(), byteOut.toByteArray().length, address, port);
+        if(resend)
+            resendableQueues.get(message.receiverId).add(new ResendablePacket(packet, message.seq));
+        socket.send(packet);
     }
 
     private int findUnusedId(){
@@ -244,27 +333,12 @@ public class ApplicationControlThread extends Thread {
         else{
             try {
                 SteerMessage message = new SteerMessage(mySeq++, myId, masterId, direction);
-                ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
-                ObjectOutputStream objOut = new ObjectOutputStream(byteOut);
-                objOut.writeObject(message);
-                DatagramPacket packet = new DatagramPacket(byteOut.toByteArray(), byteOut.toByteArray().length,
-                                                                            masterAddr, masterPort);
-                socket.send(packet);
+                sendPacket(message, masterAddr, masterPort, true); //TODO ?
             } catch(IOException e){
                 e.printStackTrace();
                 System.exit(-1);
             }
         }
     }
-    /**
-     * This constructor is invoked when player decided to join existing game.
-     * <p>
-     * It attempts to establish connection with "MASTER" node of existing game.
-     * @param address address of "MASTER" node of existing game.
-     * @param port port of "MASTER" node of existing game.
-     * @param app graphic application.
-     */
-    /*public ApplicationControlThread(String address, String port, Application app){
-        this.app = app;
-    }*/
+
 }
