@@ -18,6 +18,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.io.IOException;
 import java.net.*;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.Enumeration;
 import java.util.TreeMap;
@@ -540,9 +541,24 @@ public class Application {
         });
     }
 
+    public void showErrorMessage(String error){
+        JOptionPane.showMessageDialog(window, error);
+    }
+
     private void updatePlayerLabels(GameState state){
+        ArrayList<Integer> toRemove = new ArrayList<>(playerLabels.size());
         for(Integer id: playerLabels.keySet()){
-            playerLabels.get(id).setText(state.players.get(id).name + ": " + state.players.get(id).getScore());
+            if(state.players.containsKey(id))
+                playerLabels.get(id).setText(state.players.get(id).name + ": " + state.players.get(id).getScore());
+            else{
+                scorePanel.remove(playerLabels.get(id));
+                toRemove.add(id);
+            }
+        }
+        if(!toRemove.isEmpty())
+            scorePanel.updateUI();
+        for(Integer id: toRemove){
+            playerLabels.remove(id);
         }
     }
 
@@ -607,6 +623,9 @@ public class Application {
 
     public void processAnnouncementMessage(AnnouncementMessage message, Inet4Address address, int port){
         int ipaddr = ipaddrToInt(address);
+        System.out.println(address.getHostAddress());
+        System.out.println(ipaddr);
+        System.out.println(joinableGames.containsKey(ipaddr));
         if(joinableGames.containsKey(ipaddr))
             updateJoinableGame(message, address);
         else
@@ -663,7 +682,13 @@ public class Application {
                 ApplicationControlThread temp;
                 try {
                     temp = new ApplicationControlThread(appLink, controlMulticastSocket, game.masterConfig,  address, port);
-                } catch (IOException ioException) {
+                } catch(SocketTimeoutException timeout){
+                    JOptionPane.showMessageDialog(window, "Server did not answer");
+                    return;
+                }
+                catch (IOException ioException) {
+                    ioException.printStackTrace();
+                    System.exit(-1);
                     return;
                 }
                 try {
@@ -726,15 +751,20 @@ public class Application {
     }
 
     public void removeOutdatedGames(){
+        ArrayList<Integer> toRemove = new ArrayList<>(joinableGames.size());
         for(Integer gameIndex: joinableGames.keySet()){
             if(System.currentTimeMillis() - joinableGames.get(gameIndex).lastUpdate > 3000){
-                removeJoinableGame(gameIndex);
+                removeJoinableGameLabels(gameIndex);
+                toRemove.add(gameIndex);
             }
+        }
+        for(Integer gameIndex: toRemove){
+            joinableGames.remove(gameIndex);
         }
         menuPanels.get(MenuIndex.JOIN).updateUI();
     }
 
-    public void removeJoinableGame(int gameIndex){
+    public void removeJoinableGameLabels(int gameIndex){
         JoinableGame game = joinableGames.get(gameIndex);
         joinMasterPanel.remove(game.masterUpRigidBox);
         joinMasterPanel.remove(game.master);
@@ -752,10 +782,12 @@ public class Application {
         joinTurnDurationPanel.remove(game.turnDuration);
         joinTurnDurationPanel.remove(game.turnDurationBottomRigidBox);
         joinButtonPanel.remove(game.join);
-        joinableGames.remove(gameIndex);
     }
 
     public void clearJoinableGames(){
+        for(Integer gameIndex: joinableGames.keySet()){
+            removeJoinableGameLabels(gameIndex);
+        }
         joinableGames.clear();
         menuPanels.get(MenuIndex.JOIN).updateUI();
     }

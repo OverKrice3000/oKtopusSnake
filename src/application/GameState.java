@@ -192,7 +192,7 @@ public class GameState implements Serializable {
 
     private void startNewGame() throws InterruptedException {
         foods.clear();
-        Thread.sleep(1000);
+        Thread.sleep(1); //TODO how to reset timeouts
         for(PlayerInfo player: players.values()){
             addNewSnake(player.id);
         }
@@ -225,6 +225,10 @@ public class GameState implements Serializable {
             }
             snake.body.addFirst(head);
         }
+    }
+
+    public void setZombie(int id){
+        snakes.get(id).state = SnakeState.ZOMBIE;
     }
 
     public void changeSnakeDirection(int ownerId, Direction direction){
