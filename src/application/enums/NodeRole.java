@@ -32,5 +32,5 @@ public enum NodeRole {
      * Node with role "VIEWER" can't participate in game, but it does receive messages
      * with {@link application.GameState GameState} from "MASTER" node.
      */
-    VIEWER
+    VIEWER,
 }

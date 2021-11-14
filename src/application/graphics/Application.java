@@ -20,7 +20,6 @@ import java.io.IOException;
 import java.net.*;
 import java.util.ArrayList;
 import java.util.EnumMap;
-import java.util.Enumeration;
 import java.util.TreeMap;
 
 public class Application {
@@ -65,9 +64,10 @@ public class Application {
     private final MulticastSocket controlMulticastSocket;
 
     private class JoinableGame{
-        public final Inet4Address masterAddr;
-        public final int masterPort;
-        public final GameConfig masterConfig;
+        public int masterIndex;
+        public Inet4Address masterAddr;
+        public int masterPort;
+        public GameConfig masterConfig;
         private long lastUpdate;
         private boolean canJoin;
 
@@ -88,7 +88,8 @@ public class Application {
         public final Component turnDurationBottomRigidBox = Box.createRigidArea(new Dimension(0, 5));
         public final JButton join = new JButton("Join");
 
-        private JoinableGame(Inet4Address masterAddr, int masterPort, GameConfig masterConfig) {
+        private JoinableGame(int masterIndex, Inet4Address masterAddr, int masterPort, GameConfig masterConfig) {
+            this.masterIndex = masterIndex;
             this.masterAddr = masterAddr;
             this.masterPort = masterPort;
             this.masterConfig = masterConfig;
@@ -634,12 +635,20 @@ public class Application {
 
     private void updateJoinableGame(AnnouncementMessage message, Inet4Address address){
         JoinableGame game = joinableGames.get(ipaddrToInt(address));
-        int masterIndex;
-        for(masterIndex = 0; masterIndex < message.players.length; masterIndex++){
-            if(message.players[masterIndex].role == NodeRole.MASTER)
+        int masterIndex = -1;
+        for(int i = 0; i < message.players.length; i++){
+            if(message.players[i].role == NodeRole.MASTER){
+                masterIndex = message.players[i].id;
                 break;
+            }
         }
-        game.master.setText(message.players[masterIndex].name + "[" + address.getHostAddress() + "]");
+        assert(masterIndex != -1);
+        game.masterIndex = masterIndex;
+        game.masterAddr = address;
+        game.masterPort = message.players[masterIndex].port;
+        game.masterConfig = message.config;
+        game.canJoin = message.canJoin;
+        game.master.setText(message.players[masterIndex].name + "[" + address.getHostAddress() + "]" + "[" + game.masterIndex + "]");
         game.numOfPlayers.setText(String.valueOf(message.players.length));
         game.fieldSize.setText(message.config.width + "x" + message.config.height);
         game.foodOnField.setText(message.config.foodStatic + " + " + message.config.foodPerPlayer + "x");
@@ -649,12 +658,12 @@ public class Application {
     }
 
     private void addJoinableGame(AnnouncementMessage message, Inet4Address address, int port){
-        JoinableGame game = new JoinableGame(address, port, message.config);
         int masterIndex;
         for(masterIndex = 0; masterIndex < message.players.length; masterIndex++){
             if(message.players[masterIndex].role == NodeRole.MASTER)
                 break;
         }
+        JoinableGame game = new JoinableGame(masterIndex, address, port, message.config);
         game.master.setText(message.players[masterIndex].name + "[" + address.getHostAddress() + "]");
         game.numOfPlayers.setText(String.valueOf(message.players.length));
         game.fieldSize.setText(message.config.width + "x" + message.config.height);
@@ -672,6 +681,7 @@ public class Application {
 
         Application appLink = this;
 
+        int finalMasterIndex = masterIndex;
         game.join.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -681,7 +691,7 @@ public class Application {
                 }
                 ApplicationControlThread temp;
                 try {
-                    temp = new ApplicationControlThread(appLink, controlMulticastSocket, game.masterConfig,  address, port);
+                    temp = new ApplicationControlThread(appLink, controlMulticastSocket, game.masterConfig,  game.masterAddr, game.masterPort, game.masterIndex);
                 } catch(SocketTimeoutException timeout){
                     JOptionPane.showMessageDialog(window, "Server did not answer");
                     return;

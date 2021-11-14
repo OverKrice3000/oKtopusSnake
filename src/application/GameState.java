@@ -181,7 +181,12 @@ public class GameState implements Serializable {
             snakes.remove(id);
             snakesAlive--;
         }
-        if(snakes.isEmpty()) {
+        boolean toStartNewgame = true;
+        for(Snake snake: snakes.values()){
+            if(snake.state == SnakeState.ALIVE)
+                toStartNewgame = false;
+        }
+        if(toStartNewgame) {
             startNewGame();
             return;
         }
@@ -193,6 +198,8 @@ public class GameState implements Serializable {
     private void startNewGame() throws InterruptedException {
         foods.clear();
         Thread.sleep(1); //TODO how to reset timeouts
+        snakes.clear();
+        snakesAlive = 0;
         for(PlayerInfo player: players.values()){
             addNewSnake(player.id);
         }
@@ -228,7 +235,8 @@ public class GameState implements Serializable {
     }
 
     public void setZombie(int id){
-        snakes.get(id).state = SnakeState.ZOMBIE;
+        if(snakes.containsKey(id))
+            snakes.get(id).state = SnakeState.ZOMBIE;
     }
 
     public void changeSnakeDirection(int ownerId, Direction direction){
