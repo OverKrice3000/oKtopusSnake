@@ -172,9 +172,8 @@ public class Application {
         recvGameMulticastSocket = new MulticastSocket(9192);
         recvGameMulticastSocket.setSoTimeout(3000);
         recvGameMulticastSocket.setTimeToLive(255);
-        recvGameMulticastSocket.setInterface(InetAddress.getByName("192.168.0.10"));
-        System.out.println(recvGameMulticastSocket.getNetworkInterface().getName());
-        //recvGameMulticastSocket.setNetworkInterface(NetworkInterface.getByIndex(12));
+        /*recvGameMulticastSocket.setInterface(InetAddress.getByName("192.168.0.10"));
+        System.out.println(recvGameMulticastSocket.getNetworkInterface().getName());*/
 
         recvGameMulticastSocket.joinGroup(InetAddress.getByName("239.192.0.4"));
         joinReceiverThread = new JoinableGameReceiverThread(this, recvGameMulticastSocket);
@@ -183,8 +182,8 @@ public class Application {
 
         controlMulticastSocket = new MulticastSocket();
         controlMulticastSocket.setTimeToLive(255);
-        controlMulticastSocket.setInterface(InetAddress.getByName("192.168.0.10"));
-        System.out.println(controlMulticastSocket.getNetworkInterface().getName());
+        /*controlMulticastSocket.setInterface(InetAddress.getByName("192.168.0.10"));
+        System.out.println(controlMulticastSocket.getNetworkInterface().getName());*/
 
         window.setVisible(true);
     }
@@ -633,9 +632,6 @@ public class Application {
 
     public void processAnnouncementMessage(AnnouncementMessage message, Inet4Address address, int port){
         long ipaddr = ipaddrToLong(address, port);
-        System.out.println(address.getHostAddress());
-        System.out.println(ipaddr);
-        System.out.println(joinableGames.containsKey(ipaddr));
         if(joinableGames.containsKey(ipaddr))
             updateJoinableGame(message, address, port);
         else

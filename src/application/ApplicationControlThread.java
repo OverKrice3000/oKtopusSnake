@@ -73,9 +73,9 @@ public class ApplicationControlThread extends Thread {
         this.socket = socket;
         myId = 0;
         role = NodeRole.MASTER;
-        PlayerInfo master = new PlayerInfo(name, myId, "", socket.getLocalPort(), NodeRole.MASTER, PlayerType.HUMAN); //TODO name from application
+        PlayerInfo master = new PlayerInfo(name, myId, "", socket.getLocalPort(), NodeRole.MASTER, PlayerType.HUMAN);
         currentState = new GameState(gameConfig, master);
-
+        app.paintState(currentState);
         lastAnnounce = System.currentTimeMillis();
         lastStateUpdate = lastAnnounce;
     }
@@ -111,7 +111,6 @@ public class ApplicationControlThread extends Thread {
                 socket.setSoTimeout(recvAckTimeout);
                 try {
                     recvObj = objIn.readObject();
-                    System.out.println(recvObj.getClass());
                     if (recvObj.getClass() == AckMessage.class)
                         break;
                     else if(recvObj.getClass() == ErrorMessage.class)
@@ -134,13 +133,11 @@ public class ApplicationControlThread extends Thread {
         lastPings.put(this.masterId, lastAnnounce);
         lastRecvs.put(this.masterId, lastAnnounce);
 
-        System.out.println("MASTER ID: " + this.masterId);
-        System.out.println("FAKE MASTER ID: " + masterId);
         int queueInitCapacity = (int)(2. / config.pingDelayMs + 2. / config.iterationDelayMs);
         resendableQueues.put(this.masterId, new ArrayList<>(queueInitCapacity));
     }
 
-    private int processTimeoutTasks() throws IOException, InterruptedException {
+    private int processTimeoutTasks() throws IOException {
         int minimalTimeout = 1000;
         int currentTimeout;
         if(role == NodeRole.MASTER) {
@@ -177,12 +174,11 @@ public class ApplicationControlThread extends Thread {
         }
 
         for(Map.Entry<Integer, Long> entry: lastPings.entrySet()){
-            System.out.println("JUST ID: " + entry.getKey());
             currentTimeout = (int) (currentState.config.pingDelayMs - (System.currentTimeMillis() - entry.getValue()));
             if(currentTimeout <= 0){
                 PingMessage message = new PingMessage(mySeq++, myId, entry.getKey());
                 sendPacket(message, InetAddress.getByName(currentState.players.get(entry.getKey()).ipAddress),
-                        currentState.players.get(entry.getKey()).port, true); //TODO ?
+                        currentState.players.get(entry.getKey()).port, true);
                 entry.setValue(System.currentTimeMillis());
                 currentTimeout = currentState.config.pingDelayMs;
             }
@@ -195,7 +191,6 @@ public class ApplicationControlThread extends Thread {
             for(ResendablePacket packet: queue){
                 currentTimeout = (int) (currentState.config.pingDelayMs - (System.currentTimeMillis() - packet.lastSent));
                 if(currentTimeout <= 0){
-                    System.out.println("RESEND: " + packet.seq);
                     socket.send(packet.packet);
                     packet.updateLastSend();
                     currentTimeout = currentState.config.pingDelayMs;
@@ -225,7 +220,6 @@ public class ApplicationControlThread extends Thread {
                     }
 
                     if(deputy == null || deputy.id == masterId ){
-                        System.out.println("HERE");
                         System.exit(-1);
                     }
 
@@ -238,10 +232,11 @@ public class ApplicationControlThread extends Thread {
                     resendableQueues.put(masterId, new ArrayList<>(queueInitCapacity));
                 }
                 else if(role == NodeRole.DEPUTY){
+                    currentState.players.remove(masterId);
+                    currentState.setZombie(masterId);
                     deputyReplaceMaster();
                 }
                 else if(role == NodeRole.MASTER){
-                    System.out.println("REMOVE: " + id);
                     currentState.players.remove(id);
                     currentState.setZombie(id);
                     lastPings.remove(id);
@@ -279,12 +274,10 @@ public class ApplicationControlThread extends Thread {
         ByteArrayInputStream byteIn = new ByteArrayInputStream(recvPacket.getData());
         ObjectInputStream objIn = new ObjectInputStream(byteIn);
         Object recvObj = objIn.readObject();
-        System.out.println(recvObj.getClass());
 
         if(!Message.class.isAssignableFrom(recvObj.getClass()))
             return;
         Message recvMessage = (Message) recvObj;
-        System.out.println("SENDER: " + recvMessage.senderId);
         if((role == NodeRole.MASTER || recvMessage.senderId == masterId) && recvObj.getClass() != JoinMessage.class){
             if(!currentState.players.containsKey(recvMessage.senderId))
                 return;
@@ -293,7 +286,6 @@ public class ApplicationControlThread extends Thread {
 
         if(role == NodeRole.MASTER && recvObj.getClass() == SteerMessage.class){
             SteerMessage message = (SteerMessage)recvObj;
-            System.out.println("RECEIVED STEER: " + message.seq);
             currentState.changeSnakeDirection(message.senderId, message.direction);
             AckMessage ack = new AckMessage(message.seq, myId, message.senderId);
             sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false);
@@ -303,14 +295,13 @@ public class ApplicationControlThread extends Thread {
             boolean canJoin = currentState.findSuitableCoord() != null;
             if(canJoin) {
                 int unusedId = findUnusedId();
-                System.out.println("UNUSED: " + unusedId);
                 lastPings.put(unusedId, System.currentTimeMillis());
                 lastRecvs.put(unusedId, System.currentTimeMillis());
                 int queueInitCapacity = (int)(2. / currentState.config.pingDelayMs + 2. / currentState.config.iterationDelayMs);
                 resendableQueues.put(unusedId, new ArrayList<>(queueInitCapacity));
 
                 AckMessage ack = new AckMessage(message.seq, myId, unusedId);
-                sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false); //TODO ?
+                sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false);
 
                 NodeRole newPlayerRole = NodeRole.NORMAL;
                 if(!isThereDeputy){
@@ -327,6 +318,10 @@ public class ApplicationControlThread extends Thread {
                 );
                 currentState.players.put(unusedId, newPlayer);
                 currentState.addNewSnake(unusedId);
+
+                StateMessage state = new StateMessage(mySeq++, myId, unusedId, currentState);
+                sendPacket(state, recvPacket.getAddress(), recvPacket.getPort(), true);
+                app.paintState(currentState);
             }
             else{
                 ErrorMessage error = new ErrorMessage(mySeq++, myId, 0, "Game if full!");
@@ -336,7 +331,7 @@ public class ApplicationControlThread extends Thread {
         else if(role != NodeRole.MASTER && recvObj.getClass() == StateMessage.class){
             StateMessage message = (StateMessage) recvObj;
             AckMessage ack = new AckMessage(message.seq, myId, message.senderId);
-            sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false); //TODO ?
+            sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false);
             if(currentState == null || currentState.getStateId() < message.state.getStateId()) {
                 currentState = message.state;
                 app.paintState(currentState);
@@ -349,17 +344,14 @@ public class ApplicationControlThread extends Thread {
         }
         else if(recvObj.getClass() == ChangeRoleMessage.class){
             ChangeRoleMessage message = (ChangeRoleMessage) recvObj;
-            if(role == NodeRole.DEPUTY && message.receiverRole == NodeRole.MASTER){ //TODO ?
+            if(role == NodeRole.DEPUTY && message.receiverRole == NodeRole.MASTER){
+                currentState.players.get(masterId).role = NodeRole.NORMAL;
                 deputyReplaceMaster();
             }
             else if(role == NodeRole.NORMAL && message.receiverRole == NodeRole.DEPUTY){
                 role = NodeRole.DEPUTY;
             }
             else if(message.senderRole == NodeRole.MASTER){
-                if(role == NodeRole.MASTER) {
-                    System.out.println("THERE");
-                    System.exit(-1); //TODO change
-                }
                 if(masterId == message.senderId)
                     return;
                 role = NodeRole.NORMAL;
@@ -374,17 +366,18 @@ public class ApplicationControlThread extends Thread {
                 lastRecvs.put(masterId, System.currentTimeMillis());
                 int queueInitCapacity = (int)(2. / currentState.config.pingDelayMs + 2. / currentState.config.iterationDelayMs);
                 resendableQueues.put(masterId, new ArrayList<>(queueInitCapacity));
-                //TODO maybe master not exit
             }
             AckMessage ack = new AckMessage(message.seq, myId, message.senderId);
             sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false);
         }
         else if(recvObj.getClass() == ErrorMessage.class){
-            //TODO ?
+            ErrorMessage message = (ErrorMessage) recvObj;
+            app.showErrorMessage(message.reason);
+            AckMessage ack = new AckMessage(message.seq, myId, message.senderId);
+            sendPacket(ack, recvPacket.getAddress(), recvPacket.getPort(), false);
         }
         else if(recvObj.getClass() == AckMessage.class){
             AckMessage message = (AckMessage) recvObj;
-            System.out.println("RECEIVED ACK: " + message.seq);
             resendableQueues.get(message.senderId).removeIf(new Predicate<ResendablePacket>() {
                 @Override
                 public boolean test(ResendablePacket resendablePacket) {
@@ -408,9 +401,6 @@ public class ApplicationControlThread extends Thread {
         role = NodeRole.MASTER;
         currentState.players.get(myId).role = NodeRole.MASTER;
 
-        currentState.players.remove(masterId); //TODO maybe not delete master
-        currentState.setZombie(masterId);
-
         lastPings.clear();
         lastRecvs.clear();
         resendableQueues.clear();
@@ -420,14 +410,12 @@ public class ApplicationControlThread extends Thread {
             if(player.role == NodeRole.MASTER)
                 continue;
             lastPings.put(id, System.currentTimeMillis());
-            System.out.println("ID: " + id);
             lastRecvs.put(id, System.currentTimeMillis());
             int queueInitCapacity = (int)(2. / currentState.config.pingDelayMs + 2. / currentState.config.iterationDelayMs);
             resendableQueues.put(id, new ArrayList<>(queueInitCapacity));
             ChangeRoleMessage fromDeputy = new ChangeRoleMessage(mySeq++, myId, id, NodeRole.MASTER, null);
             sendPacket(fromDeputy, InetAddress.getByName(player.ipAddress), player.port, true);
         }
-        System.out.println(currentState.players.size());
         if(currentState.players.size() == 1){
             isThereDeputy = false;
         }
@@ -459,10 +447,21 @@ public class ApplicationControlThread extends Thread {
         long lastUpdate = System.currentTimeMillis();
         while(true){
             try {
-                System.out.println("CHECK: " + currentState.players.containsKey(0));
-                System.out.println("CHECK: " + currentState.players.size());
                 if(interrupted()) {
-                    //TODO change role
+                    if(role == NodeRole.MASTER){
+                        int deputyIndex = -1;
+                        PlayerInfo deputy = null;
+                        for(PlayerInfo player: currentState.players.values()){
+                            if(player.role == NodeRole.DEPUTY) {
+                                deputyIndex = player.id;
+                                deputy = player;
+                            }
+                        }
+                        if(deputyIndex == -1)
+                            break;
+                        ChangeRoleMessage message = new ChangeRoleMessage(mySeq++, myId, deputyIndex, null, NodeRole.MASTER);
+                        sendPacket(message, InetAddress.getByName(deputy.ipAddress), deputy.port, false);
+                    }
                     break;
                 }
                 currentSockTimeout -= System.currentTimeMillis() - lastUpdate;
@@ -473,8 +472,6 @@ public class ApplicationControlThread extends Thread {
                 processReceivedPacket(recvPacket);
             } catch(SocketTimeoutException | ClassNotFoundException e){
                 continue;
-            } catch (InterruptedException e) {
-                break;
             } catch (IOException e){
                 e.printStackTrace();
                 System.exit(-1);
@@ -489,7 +486,7 @@ public class ApplicationControlThread extends Thread {
         else{
             try {
                 SteerMessage message = new SteerMessage(mySeq++, myId, masterId, direction);
-                sendPacket(message, masterAddr, masterPort, true); //TODO ?
+                sendPacket(message, masterAddr, masterPort, true);
             } catch(IOException e){
                 e.printStackTrace();
                 System.exit(-1);

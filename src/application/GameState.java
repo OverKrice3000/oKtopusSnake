@@ -144,7 +144,7 @@ public class GameState implements Serializable {
     /**
      * This method changes {@code this} object as if one turn has passed
      */
-    public void changeState() throws InterruptedException {
+    public void changeState() {
         stateId++;
         for(Snake snake: snakes.values()){
             snake.moveHead();
@@ -199,9 +199,8 @@ public class GameState implements Serializable {
 
     }
 
-    private void startNewGame() throws InterruptedException {
+    private void startNewGame() {
         foods.clear();
-        Thread.sleep(1); //TODO how to reset timeouts
         snakes.clear();
         snakesAlive = 0;
         for(PlayerInfo player: players.values()){
